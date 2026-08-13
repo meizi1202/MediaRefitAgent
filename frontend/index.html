@@ -593,7 +593,7 @@
 
                 formData.append('message', fullMessage);
                 // 调用 Agent 接口进行 LLM 解析
-                callAgentAPI(formData);
+                callAgentAPI(formData, fullMessage);
                 return;
             }
 
@@ -608,7 +608,7 @@
                 // 其他功能或未完全选择，调用 Agent 接口
                 const strategyNames = { pad: '填充黑边', crop: '中心裁剪', pan_scroll: '平移运镜', smart_crop: '智能裁剪', stretch: '拉伸填充', mirror_scroll: '镜像滚动' };
                 formData.append('message', `把视频转成${selectedOrientationText}，使用${strategyNames[selectedStrategy]}策略`);
-                callAgentAPI(formData);
+                callAgentAPI(formData, `把视频转成${selectedOrientationText}，使用${strategyNames[selectedStrategy]}策略`);
                 return;
             }
 
@@ -661,7 +661,7 @@
                 }
             }
 
-            async function callAgentAPI(formData) {
+            async function callAgentAPI(formData, displayMessage) {
                 try {
                     const resp = await fetch(`${API_BASE}/api/agent/chat`, {
                         method: 'POST',
@@ -673,7 +673,7 @@
                     if (data.session_id) {
                         currentSessionId = data.session_id;
 
-                        const userMsg = { role: 'user', content: message || '[上传视频]', timestamp: new Date().toISOString() };
+                        const userMsg = { role: 'user', content: displayMessage || '[上传视频]', timestamp: new Date().toISOString() };
                         const assistantMsg = { role: 'assistant', content: data.message, timestamp: new Date().toISOString(), data: data.data };
 
                         let session = sessions.find(s => s.session_id === currentSessionId);
