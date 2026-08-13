@@ -306,10 +306,10 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             strategy_explicit = False
             ratio = None
             ratio_explicit = False
-            target_feature = "transform"
+            target_feature = "convert"
     else:
         # 无 LLM 时使用默认响应
-        llm_response = "请告诉我您想要的转换方式，例如：'把视频转成竖屏，使用智能裁剪'"
+        llm_response = "请告诉我您想要做什么：转换视频方向还是压缩视频？"
         target_orientation = None
         orientation_explicit = False
         strategy = None

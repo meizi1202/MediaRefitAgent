@@ -94,10 +94,10 @@ def parse_intent(user_input: str, llm: MinMaxLLM) -> dict:
 
 第三步：生成回复
 - 如果target_feature=null："抱歉，我没有理解您的需求。您是想转换视频方向还是压缩视频？"
-- 如果target_feature=transform但参数不全："好的，您想转换视频方向。请问目标方向是竖屏还是横屏？使用什么转换策略？"
+- 如果target_feature=convert但参数不全："好的，您想转换视频方向。请问目标方向是竖屏还是横屏？使用什么转换策略？"
 - 如果target_feature=compress但参数不全："好的，您想压缩视频。请问要什么压缩级别？低压缩保留较高质量，中压缩质量和体积平衡，高压缩体积最小。"
 - 如果所有参数完整：
-  - transform："好的，我把视频转换为{target_orientation}，使用{strategy}策略。"
+  - convert："好的，我把视频转换为{target_orientation}，使用{strategy}策略。"
   - compress："好的，我用{compression_level}级别压缩视频。"
 
 UI选择参数优先：如果用户输入中包含"[用户已选择参数：...]"格式，优先解析其中的参数
@@ -129,14 +129,14 @@ JSON格式（必须严格遵守）：
 
         if json_str:
             parsed = json.loads(json_str)
-            target_feature = parsed.get("target_feature", "transform")
+            target_feature = parsed.get("target_feature", "convert")
             compression_level = parsed.get("compression_level")
             compression_explicit = parsed.get("compression_explicit", False)
 
             # 判断all_params_provided
             if target_feature == "compress":
                 all_params_provided = compression_explicit and bool(compression_level)
-            elif target_feature == "transform":
+            elif target_feature == "convert":
                 all_params_provided = parsed.get("orientation_explicit", False) and parsed.get("strategy_explicit", False)
             else:
                 all_params_provided = False
