@@ -576,12 +576,14 @@
 
             // 计算完整消息（包含UI选择的参数）
             let fullMessage = message;
-            if (message && currentFeature === 'orient' && selectedOrientation && selectedStrategy) {
-                const strategyNames = { pad: '填充黑边', crop: '中心裁剪', pan_scroll: '平移运镜', smart_crop: '智能裁剪', stretch: '拉伸填充', mirror_scroll: '镜像滚动' };
-                fullMessage = `${message} [用户已选择参数：目标方向=${selectedOrientationText}，转换策略=${strategyNames[selectedStrategy]}]`;
-            } else if (message && currentFeature === 'compress' && selectedCompression) {
+            // 检测消息是否关于压缩
+            const isCompressionMessage = /压缩|压一下|变小|文件太大/.test(message);
+            if (message && currentFeature === 'compress' && selectedCompression) {
                 const levelNames = { low: '低', medium: '中', high: '高' };
                 fullMessage = `${message} [用户已选择参数：压缩级别=${levelNames[selectedCompression]}]`;
+            } else if (message && currentFeature === 'orient' && selectedOrientation && selectedStrategy && !isCompressionMessage) {
+                const strategyNames = { pad: '填充黑边', crop: '中心裁剪', pan_scroll: '平移运镜', smart_crop: '智能裁剪', stretch: '拉伸填充', mirror_scroll: '镜像滚动' };
+                fullMessage = `${message} [用户已选择参数：目标方向=${selectedOrientationText}，转换策略=${strategyNames[selectedStrategy]}]`;
             }
 
             const emptyState = document.getElementById('emptyState');

@@ -259,7 +259,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             llm = MinMaxLLM(api_key=LLM_API_KEY)
             parsed = llm_parse_intent(user_input, llm)
 
-            target_feature = parsed.get("target_feature", "transform")
+            target_feature = parsed.get("target_feature", "convert")
             compression_level = parsed.get("compression_level")
             compression_explicit = parsed.get("compression_explicit", False)
             target_orientation = parsed.get("target_orientation")
@@ -286,6 +286,10 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                 )
                 state["messages"].append(msg)
                 return state
+
+            # 如果是转换请求（convert或未识别都走转换流程）
+            if target_feature == "convert" or target_feature is None:
+                state["current_feature"] = "convert"
 
             # 转换方向格式
             if target_orientation and isinstance(target_orientation, str):

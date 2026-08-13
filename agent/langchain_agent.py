@@ -84,7 +84,7 @@ def parse_intent(user_input: str, llm: MinMaxLLM) -> dict:
 分析用户意图步骤：
 
 第一步：识别工具名称
-- 如果用户说"转换"、"转成"、"转竖屏"、"转横屏"、"横竖屏" -> target_feature="transform"
+- 如果用户说"转换"、"转成"、"转竖屏"、"转横屏"、"横竖屏" -> target_feature="convert"
 - 如果用户说"压缩"、"压一下"、"变小"、"文件太大" -> target_feature="compress"
 - 如果无法判断 -> target_feature=null
 
