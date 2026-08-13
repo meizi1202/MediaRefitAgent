@@ -101,6 +101,19 @@ class OrientationResponseModel(BaseModel):
     method: str
 
 
+class VideoInfoResponseModel(BaseModel):
+    """视频信息响应模型"""
+    success: bool
+    width: int = 0
+    height: int = 0
+    duration: float = 0.0
+    fps: float = 0.0
+    bitrate: int = 0
+    codec: str = ""
+    aspect_ratio: float = 0.0
+    message: str = ""
+
+
 class HealthResponseModel(BaseModel):
     """健康检查响应"""
     status: str
@@ -325,6 +338,46 @@ async def api_compress(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         # 清理输入临时文件
+        if os.path.exists(input_path):
+            os.unlink(input_path)
+
+
+@app.post("/api/video-info", response_model=VideoInfoResponseModel)
+async def api_video_info(file: UploadFile = File(...)):
+    """
+    获取视频信息接口
+
+    上传视频文件，获取其详细信息
+    """
+    # 保存上传的文件
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_input:
+        shutil.copyfileobj(file.file, tmp_input)
+        input_path = tmp_input.name
+
+    try:
+        from video.processor import get_video_metadata
+
+        metadata = get_video_metadata(input_path)
+
+        return VideoInfoResponseModel(
+            success=True,
+            width=metadata.width,
+            height=metadata.height,
+            duration=metadata.duration,
+            fps=metadata.fps,
+            bitrate=metadata.bitrate,
+            codec=metadata.codec,
+            aspect_ratio=metadata.aspect_ratio,
+            message=f"视频信息获取成功",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # 清理临时文件
         if os.path.exists(input_path):
             os.unlink(input_path)
 

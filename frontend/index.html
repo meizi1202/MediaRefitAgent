@@ -172,7 +172,7 @@
                 <button class="feature-tab" data-feature="compress" onclick="selectFeature('compress', event)">视频压缩</button>
                 <button class="feature-tab disabled" data-feature="cut">视频裁剪</button>
                 <button class="feature-tab disabled" data-feature="format">视频格式转换</button>
-                <button class="feature-tab disabled" data-feature="info">视频信息获取</button>
+                <button class="feature-tab" data-feature="info" onclick="selectFeature('info', event)">视频信息获取</button>
             </div>
 
             <!-- 横竖屏转换参数面板（点击标签后展开） -->
@@ -601,19 +601,25 @@
 
             // 根据是否有消息决定调用哪个API
             if (message) {
-                // 检测消息是否关于压缩（无论是点击标签还是输入文字）
+                // 检测消息是否关于压缩
                 const isCompressionMessage = /压缩|压一下|变小|文件太大/.test(message);
-                console.log('[DEBUG] message:', message, 'currentFeature:', currentFeature, 'isCompressionMessage:', isCompressionMessage);
+                // 检测消息是否关于视频信息
+                const isVideoInfoMessage = /视频信息|获取视频信息|查看视频信息/.test(message);
+
                 if (currentFeature === 'compress' || isCompressionMessage) {
                     formData.append('message', fullMessage);
                     // 压缩功能直接调用压缩接口，不走 Agent
-                    console.log('[DEBUG] Calling callCompressAPI');
                     callCompressAPI(formData, fullMessage);
+                    return;
+                }
+                if (currentFeature === 'info' || isVideoInfoMessage) {
+                    formData.append('message', fullMessage);
+                    // 获取视频信息直接调用接口
+                    callVideoInfoAPI(formData, fullMessage);
                     return;
                 }
                 // 调用 Agent 接口进行 LLM 解析
                 formData.append('message', fullMessage);
-                console.log('[DEBUG] Calling callAgentAPI');
                 callAgentAPI(formData, fullMessage);
                 return;
             }
@@ -624,6 +630,10 @@
             if (currentFeature === 'compress') {
                 // 视频压缩直接调用 compress API
                 callCompressAPI(formData, '压缩视频');
+                return;
+            } else if (currentFeature === 'info') {
+                // 获取视频信息直接调用 info API
+                callVideoInfoAPI(formData, '获取视频信息');
                 return;
             } else if (currentFeature === 'orient' && selectedOrientation && selectedStrategy) {
                 // 横竖屏转换且已选择方向和策略，直接调用 transform API
@@ -732,6 +742,40 @@
                         updatePreviewForCompress(data, compressionLevel);
                     } else {
                         addMessage('assistant', `压缩失败: ${data.detail || '未知错误'}`);
+                    }
+                } catch (e) {
+                    hideAssistantTyping();
+                    addMessage('assistant', `请求失败: ${e.message}`);
+                }
+            }
+
+            async function callVideoInfoAPI(formData, displayMessage) {
+                // 获取视频信息直接调用接口
+                const fileToUpload = selectedFile || fileInput.files[0];
+                if (!fileToUpload) {
+                    alert('请上传视频文件');
+                    return;
+                }
+
+                hideAssistantTyping();
+                showAssistantTyping();
+
+                const infoFormData = new FormData();
+                infoFormData.append('file', fileToUpload);
+
+                try {
+                    const resp = await fetch(`${API_BASE}/api/video-info`, {
+                        method: 'POST',
+                        body: infoFormData
+                    });
+                    const data = await resp.json();
+                    hideAssistantTyping();
+
+                    if (data.success) {
+                        const msg = `视频信息：\n\n分辨率: ${data.width}x${data.height}\n时长: ${data.duration.toFixed(1)}秒\n帧率: ${data.fps}fps\n码率: ${(data.bitrate/1000).toFixed(0)}kbps\n编码: ${data.codec}`;
+                        addMessage('assistant', msg);
+                    } else {
+                        addMessage('assistant', `获取视频信息失败: ${data.detail || '未知错误'}`);
                     }
                 } catch (e) {
                     hideAssistantTyping();
