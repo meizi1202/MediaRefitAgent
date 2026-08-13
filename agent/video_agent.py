@@ -149,12 +149,92 @@ class IntentParser:
 
 # ============ Node Functions ============
 
+def _parse_ui_params(user_input: str) -> dict:
+    """解析前端UI选择的参数格式 [用户已选择参数：目标方向=竖屏 9:16，转换策略=填充黑边]"""
+    import re
+    result = {"found": False}
+
+    # 检查是否包含UI参数格式
+    if "[用户已选择参数：" not in user_input:
+        return result
+
+    # 解析目标方向
+    orient_match = re.search(r'目标方向\s*=\s*([^，,\]]+)', user_input)
+    if orient_match:
+        orient_text = orient_match.group(1).strip()
+        if "竖屏" in orient_text:
+            result["target_orientation"] = "portrait"
+            result["ratio_text"] = orient_text
+        elif "横屏" in orient_text:
+            result["target_orientation"] = "landscape"
+            result["ratio_text"] = orient_text
+
+        # 解析比例
+        ratio_map = {"9:16": 0.5625, "4:5": 0.8, "16:9": 1.7778, "21:9": 2.3333, "4:3": 1.3333}
+        for ratio_text, ratio_value in ratio_map.items():
+            if ratio_text in orient_text:
+                result["target_ratio"] = ratio_value
+                break
+
+    # 解析转换策略
+    strategy_match = re.search(r'转换策略\s*=\s*([^，,\]]+)', user_input)
+    if strategy_match:
+        strategy_text = strategy_match.group(1).strip()
+        strategy_map = {
+            "填充黑边": "pad",
+            "中心裁剪": "crop",
+            "智能裁剪": "smart_crop",
+            "拉伸填充": "stretch",
+            "镜像滚动": "mirror_scroll",
+            "平移运镜": "pan_scroll",
+        }
+        for name, strategy in strategy_map.items():
+            if name in strategy_text:
+                result["strategy"] = strategy
+                result["strategy_text"] = name
+                break
+
+    if result.get("target_orientation") and result.get("strategy"):
+        result["found"] = True
+
+    return result
+
+
 def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     """分析用户意图 - 使用 LLM 生成响应"""
     user_input = state["user_input"]
 
     llm_response = ""
     all_params_provided = False
+
+    # 优先解析UI选择参数格式 [用户已选择参数：...]
+    ui_params = _parse_ui_params(user_input)
+    if ui_params["found"]:
+        # UI参数解析成功，直接使用
+        target_orientation = ui_params.get("target_orientation")
+        strategy = ui_params.get("strategy")
+        ratio = ui_params.get("target_ratio")
+        orientation_explicit = True
+        strategy_explicit = True
+        ratio_explicit = True
+        all_params_provided = True
+        llm_response = f"好的，我把视频转换为{target_orientation=='portrait' and '竖屏' or '横屏'}（{ui_params.get('ratio_text', '9:16')}），使用{ui_params.get('strategy_text', '填充黑边')}策略。"
+
+        state["target_orientation"] = target_orientation
+        state["strategy"] = strategy
+        state["target_ratio"] = ratio
+        state["orientation_explicit"] = orientation_explicit
+        state["strategy_explicit"] = strategy_explicit
+        state["ratio_explicit"] = ratio_explicit
+        state["all_params_provided"] = all_params_provided
+
+        msg = ConversationMessage(
+            role="assistant",
+            content=llm_response,
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+        return state
 
     # 优先使用 LLM 意图解析（如果可用）
     if LLM_INTENT_AVAILABLE and llm_parse_intent:
