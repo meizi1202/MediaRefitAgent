@@ -385,6 +385,11 @@ def detect_video(state: VideoAgentState) -> VideoAgentState:
 
 def select_strategy(state: VideoAgentState) -> VideoAgentState:
     """选择转换策略"""
+    # 压缩流程直接执行
+    if state.get("current_feature") == "compress" and state.get("all_params_provided"):
+        state["current_step"] = "execute_compress"
+        return state
+
     # 检查方向是否相同
     if state.get("target_orientation") and state.get("original_orientation"):
         if state["original_orientation"] == state["target_orientation"]:
@@ -678,17 +683,8 @@ def create_video_agent_graph():
         }
     )
 
-    # handle_user_response 之后也需要检查下一步
-    graph.add_conditional_edges(
-        "handle_user_response",
-        should_proceed,
-        {
-            "select_strategy": "select_strategy",
-            "execute_transform": "execute_transform",
-            "execute_compress": "execute_compress",
-            "waiting_for_user": "handle_user_response",
-        }
-    )
+    # handle_user_response 处理完后回到 select_strategy 决定下一步
+    graph.add_edge("handle_user_response", "select_strategy")
 
     graph.add_edge("execute_transform", "confirm_complete")
     graph.add_edge("execute_compress", "confirm_complete")
