@@ -1,159 +1,109 @@
 """
-MinMax LLM 意图解析
-
-直接从 MinMax API 解析用户意图，不依赖 LangChain Agent
+LangChain Agent - 基于 MinMax LLM 的意图解析
 """
 import os
 import json
-import requests
-from typing import Optional, List
+from typing import Optional
 
-# API 配置
-API_BASE = os.environ.get("API_BASE", "http://172.18.98.97:8000")
-MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
+# API配置
+API_URL = "https://api.minimax.chat/v1/text/chatcompletion_v2"
+MODEL_NAME = "MiniMax-M2.7"
+
+# 全局变量控制
+LLM_INTENT_AVAILABLE = True
 
 
 class MinMaxLLM:
-    """MinMax 大模型客户端"""
+    """MinMax LLM 封装"""
 
-    def __init__(self, api_key: str = None, model: str = "MiniMax-M2.7", base_url: str = "https://api.minimax.chat"):
-        self.api_key = api_key or MINIMAX_API_KEY
-        self.model = model
-        self.base_url = base_url
-        self.api_version = "v1"
+    def __init__(self, api_key: str = ""):
+        self.api_key = api_key or os.environ.get("MINIMAX_API_KEY", "")
+        self.api_url = API_URL
+        self.model = MODEL_NAME
 
-    @property
-    def _llm_type(self) -> str:
-        return "minimax"
+    def _generate(self, messages: list) -> "SimpleResponse":
+        """生成回复"""
+        import urllib.request
+        import urllib.error
 
-    def _generate(self, messages: list):
-        """生成回复，直接返回字典格式"""
-        # 转换消息格式（支持字典和对象两种格式）
-        chat_messages = []
-        for msg in messages:
-            if isinstance(msg, dict):
-                chat_messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
-            else:
-                content = msg.content if hasattr(msg, 'content') else str(msg)
-                msg_type = type(msg).__name__
-                if msg_type == "HumanMessage":
-                    role = "user"
-                elif msg_type == "SystemMessage":
-                    role = "system"
-                elif msg_type == "AIMessage":
-                    role = "assistant"
-                else:
-                    role = "user"
-                chat_messages.append({"role": role, "content": content})
-
-        # API 请求
-        url = f"{self.base_url}/{self.api_version}/text/chatcompletion_v2"
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        if not self.api_key:
+            return SimpleResponse(content="")
 
         data = {
             "model": self.model,
-            "messages": chat_messages,
+            "messages": messages,
+            "temperature": 0.1,
         }
 
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+
+        req = urllib.request.Request(
+            self.api_url,
+            data=json.dumps(data).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
         try:
-            response = requests.post(url, headers=headers, json=data, timeout=60)
-            response.raise_for_status()
-            result = response.json()
-
-            # 解析响应
-            choices = result.get("choices", [])
-            if choices:
-                content = choices[0].get("message", {}).get("content", "")
-            else:
-                content = result.get("choices", [{}])[0].get("message", {}).get("content", "") or result.get("reply", "")
-
-            # 返回简单的响应对象
-            class SimpleResponse:
-                def __init__(self, content):
-                    self.content = content
-            return SimpleResponse(content=content)
-
+            with urllib.request.urlopen(req, timeout=60) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                return SimpleResponse(content=content)
+        except (urllib.error.URLError, urllib.error.HTTPError) as e:
+            return SimpleResponse(content=f"API调用失败: {str(e)}")
         except Exception as e:
-            class ErrorResponse:
-                def __init__(self, error):
-                    self.content = f"API调用失败: {str(error)}"
-            return ErrorResponse(error=e)
+            return SimpleResponse(content=f"未知错误: {str(e)}")
 
 
-# ============ Intent Parser ============
+class SimpleResponse:
+    """简单响应对象"""
+
+    def __init__(self, content: str = ""):
+        self.content = content
+
 
 def parse_intent(user_input: str, llm: MinMaxLLM) -> dict:
     """使用 LLM 解析用户意图，返回参数和响应消息"""
     # 构建消息历史
-    system_prompt = """你是一个视频转换助手。
+    system_prompt = """你是一个视频处理助手，有两个主要工具：
 
-请分析用户意图，只返回以下 JSON 格式（不要有任何其他内容）：
+【工具1：视频横竖屏转换 transform】
+- 功能：转换视频的方向（横屏↔竖屏）和比例
+- 参数：目标方向(target_orientation)、转换策略(strategy)
+- 方向：portrait(竖屏)、landscape(横屏)
+- 策略：pad(填充黑边)、crop(中心裁剪)、smart_crop(智能裁剪)、stretch(拉伸填充)、mirror_scroll(镜像滚动)、pan_scroll(平移运镜)
 
-功能识别（确定用户想要的操作）：
+【工具2：视频压缩 compress】
+- 功能：压缩视频文件大小
+- 参数：compression_level
+- 级别：low(低压缩高质量)、medium(中压缩平衡)、high(高压缩小体积)
+
+分析用户意图步骤：
+
+第一步：识别工具名称
 - 如果用户说"转换"、"转成"、"转竖屏"、"转横屏"、"横竖屏" -> target_feature="transform"
 - 如果用户说"压缩"、"压一下"、"变小"、"文件太大" -> target_feature="compress"
-- 如果没有明确意图 -> target_feature=null
+- 如果无法判断 -> target_feature=null
 
-方向识别：
-- 如果用户说"竖屏"、"转竖屏"、"短视频"、"9:16"、"4:5"、"2:3" -> target_orientation="portrait", orientation_explicit=true
-- 如果用户说"横屏"、"转横屏"、"16:9"、"21:9"、"4:3"、"3:2" -> target_orientation="landscape", orientation_explicit=true
-- 如果用户没有说方向 -> target_orientation=null, orientation_explicit=false
+第二步：根据工具识别对应参数
+- transform需要：orientation_explicit、strategy_explicit
+- compress需要：compression_explicit
 
-策略识别：
-- 如果用户说"智能裁剪"、"AI裁剪" -> strategy="smart_crop", strategy_explicit=true
-- 如果用户说"裁剪"、"切边" -> strategy="crop", strategy_explicit=true
-- 如果用户说"填充"、"黑边" -> strategy="pad", strategy_explicit=true
-- 如果用户说"拉伸填充"、"拉伸" -> strategy="stretch", strategy_explicit=true
-- 如果用户说"镜像滚动"、"镜像" -> strategy="mirror_scroll", strategy_explicit=true
-- 如果用户说"平移运镜"、"平移" -> strategy="pan_scroll", strategy_explicit=true
-- 如果用户没有说策略 -> strategy=null, strategy_explicit=false
+第三步：生成回复
+- 如果target_feature=null："抱歉，我没有理解您的需求。您是想转换视频方向还是压缩视频？"
+- 如果target_feature=transform但参数不全："好的，您想转换视频方向。请问目标方向是竖屏还是横屏？使用什么转换策略？"
+- 如果target_feature=compress但参数不全："好的，您想压缩视频。请问要什么压缩级别？低压缩保留较高质量，中压缩质量和体积平衡，高压缩体积最小。"
+- 如果所有参数完整：
+  - transform："好的，我把视频转换为{target_orientation}，使用{strategy}策略。"
+  - compress："好的，我用{compression_level}级别压缩视频。"
 
-比例识别（返回 float 值）：
-- 如果用户说"9:16"、"9/16" -> target_ratio=0.5625, ratio_explicit=true
-- 如果用户说"4:5"、"4/5" -> target_ratio=0.8, ratio_explicit=true
-- 如果用户说"1:1"、"1/1" -> target_ratio=1.0, ratio_explicit=true
-- 如果用户说"2:3"、"2/3" -> target_ratio=0.6667, ratio_explicit=true
-- 如果用户说"16:9"、"16/9" -> target_ratio=1.7778, ratio_explicit=true
-- 如果用户说"21:9"、"21/9" -> target_ratio=2.3333, ratio_explicit=true
-- 如果用户说"4:3"、"4/3" -> target_ratio=1.3333, ratio_explicit=true
-- 如果用户说"3:2"、"3/2" -> target_ratio=1.5, ratio_explicit=true
-- 如果用户没有说比例，默认竖屏用 9:16 (0.5625)，横屏用 16:9 (1.7778)，ratio_explicit=false
+UI选择参数优先：如果用户输入中包含"[用户已选择参数：...]"格式，优先解析其中的参数
 
-压缩级别识别：
-- 如果用户说"低压缩"、"高质量" -> compression_level="low", compression_explicit=true
-- 如果用户说"中压缩"、"中等质量" -> compression_level="medium", compression_explicit=true
-- 如果用户说"高压缩"、"小体积" -> compression_level="high", compression_explicit=true
-- 如果用户没有说级别 -> compression_level=null, compression_explicit=false
-
-UI选择参数识别：
-- 如果用户输入中包含"[用户已选择参数：...]"格式，优先使用其中指定的参数
-- "竖屏 9:16" -> target_orientation="portrait", target_ratio=0.5625
-- "竖屏 4:5" -> target_orientation="portrait", target_ratio=0.8
-- "横屏 16:9" -> target_orientation="landscape", target_ratio=1.7778
-- "横屏 21:9" -> target_orientation="landscape", target_ratio=2.3333
-- "横屏 4:3" -> target_orientation="landscape", target_ratio=1.3333
-- "填充黑边" -> strategy="pad"
-- "中心裁剪" -> strategy="crop"
-- "智能裁剪" -> strategy="smart_crop"
-- "拉伸填充" -> strategy="stretch"
-- "镜像滚动" -> strategy="mirror_scroll"
-- "平移运镜" -> strategy="pan_scroll"
-- "压缩级别=低" -> compression_level="low"
-- "压缩级别=中" -> compression_level="medium"
-- "压缩级别=高" -> compression_level="high"
-
-生成回复：
-- 如果是压缩请求且缺少compression_level："请问您想要什么压缩级别？低压缩保留较高质量，中压缩质量和体积平衡，高压缩体积最小。"
-- 如果是转换请求且缺少参数，必须在回复中说明已使用的默认值，并列出所有可用策略供用户选择
-- 如果所有参数都有，回复如："好的，我把视频压缩为中等级别。"
-- 如果是转换请求且所有参数都有，回复如："好的，我把视频转换为竖屏（9:16），使用智能裁剪策略。"
-
-JSON格式（必须严格遵守，不要有其他内容）：
-{"target_feature": "transform/compress/null", "target_orientation": "portrait/landscape/null", "strategy": "pad/crop/smart_crop/stretch/mirror_scroll/pan_scroll/null", "target_ratio": 0.5625/0.8/1.0/0.6667/1.7778/2.3333/1.3333/1.5/null, "compression_level": "low/medium/high/null", "orientation_explicit": true/false, "strategy_explicit": true/false, "ratio_explicit": true/false, "compression_explicit": true/false, "response": "你的回复", "all_params_provided": true/false}"""
+JSON格式（必须严格遵守）：
+{"target_feature": "transform/compress/null", "target_orientation": "portrait/landscape/null", "strategy": "pad/crop/smart_crop/stretch/mirror_scroll/pan_scroll/null", "compression_level": "low/medium/high/null", "orientation_explicit": true/false, "strategy_explicit": true/false, "compression_explicit": true/false, "response": "你的回复", "all_params_provided": true/false}"""
 
     try:
         # 直接使用字典格式的消息
@@ -186,18 +136,18 @@ JSON格式（必须严格遵守，不要有其他内容）：
             # 判断all_params_provided
             if target_feature == "compress":
                 all_params_provided = compression_explicit and bool(compression_level)
-            else:
+            elif target_feature == "transform":
                 all_params_provided = parsed.get("orientation_explicit", False) and parsed.get("strategy_explicit", False)
+            else:
+                all_params_provided = False
 
             return {
                 "target_feature": target_feature,
                 "target_orientation": parsed.get("target_orientation"),
                 "strategy": parsed.get("strategy"),
-                "target_ratio": parsed.get("target_ratio"),
                 "compression_level": compression_level,
                 "orientation_explicit": parsed.get("orientation_explicit", False),
                 "strategy_explicit": parsed.get("strategy_explicit", False),
-                "ratio_explicit": parsed.get("ratio_explicit", False),
                 "compression_explicit": compression_explicit,
                 "response": parsed.get("response", ""),
                 "all_params_provided": all_params_provided
@@ -205,38 +155,59 @@ JSON格式（必须严格遵守，不要有其他内容）：
 
         # JSON 解析失败，返回原始内容作为响应
         return {
+            "target_feature": None,
             "target_orientation": None,
             "strategy": None,
-            "target_ratio": None,
+            "compression_level": None,
             "orientation_explicit": False,
             "strategy_explicit": False,
-            "ratio_explicit": False,
+            "compression_explicit": False,
             "response": content if content else "无法解析响应",
             "all_params_provided": False
         }
 
     except Exception as e:
         return {
+            "target_feature": None,
             "target_orientation": None,
             "strategy": None,
-            "target_ratio": None,
+            "compression_level": None,
             "orientation_explicit": False,
             "strategy_explicit": False,
-            "ratio_explicit": False,
-            "response": f"抱歉，解析出错：{str(e)}",
+            "compression_explicit": False,
+            "response": f"解析出错：{str(e)}",
             "all_params_provided": False
         }
 
 
-# ============ 便捷函数 ============
+class VideoTransformAgent:
+    """视频转换 Agent（用于直接调用，不通过LangGraph）"""
 
-def create_llm(api_key: str = None) -> MinMaxLLM:
-    """创建 LLM 实例"""
-    return MinMaxLLM(api_key=api_key)
+    def __init__(self, api_key: str = ""):
+        self.api_key = api_key or os.environ.get("MINIMAX_API_KEY", "")
+        self.llm = MinMaxLLM(api_key=self.api_key)
+
+    def chat_with_ai_response(self, user_input: str, file_path: str = None) -> dict:
+        """聊天并返回AI响应"""
+        parsed = parse_intent(user_input, self.llm)
+
+        result = {
+            "success": True,
+            "message": parsed.get("response", ""),
+            "parsed_params": {
+                "target_feature": parsed.get("target_feature"),
+                "target_orientation": parsed.get("target_orientation"),
+                "strategy": parsed.get("strategy"),
+                "compression_level": parsed.get("compression_level"),
+                "all_params_provided": parsed.get("all_params_provided"),
+            }
+        }
+
+        return result
 
 
-def chat(message: str, file_path: str = None, api_key: str = None) -> str:
-    """便捷对话函数"""
-    llm = create_llm(api_key=api_key)
-    result = parse_intent(message, llm)
-    return result.get("response", "")
+# 简单的 chat 函数
+def chat(message: str, api_key: str = "") -> dict:
+    """简单的聊天接口"""
+    agent = VideoTransformAgent(api_key=api_key)
+    return agent.chat_with_ai_response(message)
