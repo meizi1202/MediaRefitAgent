@@ -73,6 +73,25 @@ class TransformResponseModel(BaseModel):
     message: str
 
 
+class CompressionLevel(str, Enum):
+    """压缩级别"""
+    low = "low"       # 低压缩，高质量
+    medium = "medium" # 中等压缩
+    high = "high"     # 高压缩，低质量
+
+
+class CompressResponseModel(BaseModel):
+    """压缩响应模型"""
+    success: bool
+    input_path: str
+    output_path: str
+    download_url: Optional[str] = None
+    original_size: int = 0
+    compressed_size: int = 0
+    compression_ratio: float = 0.0
+    message: str
+
+
 class OrientationResponseModel(BaseModel):
     """方向检测响应模型"""
     orientation: str
@@ -239,6 +258,65 @@ async def api_transform(
             )
         else:
             raise HTTPException(status_code=500, detail=result.error)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # 清理输入临时文件
+        if os.path.exists(input_path):
+            os.unlink(input_path)
+
+
+@app.post("/api/compress", response_model=CompressResponseModel)
+async def api_compress(
+    file: UploadFile = File(...),
+    compression_level: str = Form(default="medium"),
+):
+    """
+    视频压缩接口
+
+    上传视频文件，压缩到指定质量级别
+    """
+    # 验证参数
+    if compression_level not in ("low", "medium", "high"):
+        raise HTTPException(status_code=400, detail="compression_level must be 'low', 'medium', or 'high'")
+
+    # 保存上传的文件
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_input:
+        shutil.copyfileobj(file.file, tmp_input)
+        input_path = tmp_input.name
+
+    # 获取原始文件大小
+    original_size = os.path.getsize(input_path)
+
+    # 生成输出路径
+    output_path = str(output_dir / f"compressed_{Path(file.filename).stem}{suffix}")
+
+    try:
+        # 执行压缩
+        from video.processor import compress_video
+        compress_video(input_path, output_path, compression_level)
+
+        # 获取压缩后文件大小
+        compressed_size = os.path.getsize(output_path)
+        compression_ratio = compressed_size / original_size if original_size > 0 else 0
+
+        output_filename = Path(output_path).name
+        download_url = f"http://172.18.98.97:8000/api/download/{output_filename}"
+
+        return CompressResponseModel(
+            success=True,
+            input_path=input_path,
+            output_path=output_path,
+            download_url=download_url,
+            original_size=original_size,
+            compressed_size=compressed_size,
+            compression_ratio=round(compression_ratio, 2),
+            message=f"压缩完成！原始大小: {original_size/1024/1024:.2f}MB, 压缩后: {compressed_size/1024/1024:.2f}MB",
+        )
 
     except HTTPException:
         raise

@@ -378,6 +378,50 @@ def stretch_to_ratio(
     return True
 
 
+def compress_video(
+    input_path: str,
+    output_path: str,
+    compression_level: str = "medium",
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    压缩视频
+
+    Args:
+        input_path: 输入路径
+        output_path: 输出路径
+        compression_level: 压缩级别 (low/medium/high)
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    # 压缩级别参数映射
+    level_params = {
+        "low": {"crf": 18, "preset": "medium", "description": "高质量"},
+        "medium": {"crf": 23, "preset": "fast", "description": "中等质量"},
+        "high": {"crf": 28, "preset": "ultrafast", "description": "小体积"},
+    }
+    params = level_params.get(compression_level, level_params["medium"])
+
+    cmd = [
+        FFMPEG_PATH,
+        "-y",
+        "-i", input_path,
+        "-c:v", "libx264",
+        "-preset", params["preset"],
+        "-crf", params["crf"],
+        "-c:a", "aac",
+        "-b:a", "128k",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+    if not success:
+        raise Exception(f"Compress failed: {error}")
+    return True
+
+
 def mirror_scroll(
     input_path: str,
     output_path: str,

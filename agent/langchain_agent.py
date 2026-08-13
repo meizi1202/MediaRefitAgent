@@ -93,7 +93,10 @@ def parse_intent(user_input: str, llm: MinMaxLLM) -> dict:
 
 请分析用户意图，只返回以下 JSON 格式（不要有任何其他内容）：
 
-参数识别优先级：用户通过UI选择的参数优先于用户文字描述。
+功能识别（确定用户想要的操作）：
+- 如果用户说"转换"、"转成"、"转竖屏"、"转横屏"、"横竖屏" -> target_feature="transform"
+- 如果用户说"压缩"、"压一下"、"变小"、"文件太大" -> target_feature="compress"
+- 如果没有明确意图 -> target_feature=null
 
 方向识别：
 - 如果用户说"竖屏"、"转竖屏"、"短视频"、"9:16"、"4:5"、"2:3" -> target_orientation="portrait", orientation_explicit=true
@@ -120,6 +123,12 @@ def parse_intent(user_input: str, llm: MinMaxLLM) -> dict:
 - 如果用户说"3:2"、"3/2" -> target_ratio=1.5, ratio_explicit=true
 - 如果用户没有说比例，默认竖屏用 9:16 (0.5625)，横屏用 16:9 (1.7778)，ratio_explicit=false
 
+压缩级别识别：
+- 如果用户说"低压缩"、"高质量" -> compression_level="low", compression_explicit=true
+- 如果用户说"中压缩"、"中等质量" -> compression_level="medium", compression_explicit=true
+- 如果用户说"高压缩"、"小体积" -> compression_level="high", compression_explicit=true
+- 如果用户没有说级别 -> compression_level=null, compression_explicit=false
+
 UI选择参数识别：
 - 如果用户输入中包含"[用户已选择参数：...]"格式，优先使用其中指定的参数
 - "竖屏 9:16" -> target_orientation="portrait", target_ratio=0.5625
@@ -133,14 +142,18 @@ UI选择参数识别：
 - "拉伸填充" -> strategy="stretch"
 - "镜像滚动" -> strategy="mirror_scroll"
 - "平移运镜" -> strategy="pan_scroll"
+- "压缩级别=低" -> compression_level="low"
+- "压缩级别=中" -> compression_level="medium"
+- "压缩级别=高" -> compression_level="high"
 
 生成回复：
-- 如果缺少参数，必须在回复中说明已使用的默认值，并列出所有可用策略供用户选择
-- 例如："我理解了，您想把视频转换为竖屏（默认9:16比例）。请问使用哪种转换策略？支持：1. 智能裁剪 - AI自动裁剪保留主体；2. 中心裁剪 - 直接裁剪可能丢失边缘；3. 填充黑边 - 添加黑边保持所有内容完整。您也可以指定目标比例如9:16、4:5等。4.拉伸填充 - 直接拉伸视频，可能变形。5.镜像滚动 - 适合风景视频，保持内容完整。"
-- 如果所有参数都有，回复如："好的，我把视频转换为竖屏（9:16），使用智能裁剪策略。"
+- 如果是压缩请求且缺少compression_level："请问您想要什么压缩级别？低压缩保留较高质量，中压缩质量和体积平衡，高压缩体积最小。"
+- 如果是转换请求且缺少参数，必须在回复中说明已使用的默认值，并列出所有可用策略供用户选择
+- 如果所有参数都有，回复如："好的，我把视频压缩为中等级别。"
+- 如果是转换请求且所有参数都有，回复如："好的，我把视频转换为竖屏（9:16），使用智能裁剪策略。"
 
 JSON格式（必须严格遵守，不要有其他内容）：
-{"target_orientation": "portrait/landscape/null", "strategy": "pad/crop/smart_crop/stretch/mirror_scroll/pan_scroll/null", "target_ratio": 0.5625/0.8/1.0/0.6667/1.7778/2.3333/1.3333/1.5/null, "orientation_explicit": true/false, "strategy_explicit": true/false, "ratio_explicit": true/false, "response": "你的回复", "all_params_provided": true/false}"""
+{"target_feature": "transform/compress/null", "target_orientation": "portrait/landscape/null", "strategy": "pad/crop/smart_crop/stretch/mirror_scroll/pan_scroll/null", "target_ratio": 0.5625/0.8/1.0/0.6667/1.7778/2.3333/1.3333/1.5/null, "compression_level": "low/medium/high/null", "orientation_explicit": true/false, "strategy_explicit": true/false, "ratio_explicit": true/false, "compression_explicit": true/false, "response": "你的回复", "all_params_provided": true/false}"""
 
     try:
         # 直接使用字典格式的消息
@@ -166,15 +179,28 @@ JSON格式（必须严格遵守，不要有其他内容）：
 
         if json_str:
             parsed = json.loads(json_str)
+            target_feature = parsed.get("target_feature", "transform")
+            compression_level = parsed.get("compression_level")
+            compression_explicit = parsed.get("compression_explicit", False)
+
+            # 判断all_params_provided
+            if target_feature == "compress":
+                all_params_provided = compression_explicit and bool(compression_level)
+            else:
+                all_params_provided = parsed.get("orientation_explicit", False) and parsed.get("strategy_explicit", False)
+
             return {
+                "target_feature": target_feature,
                 "target_orientation": parsed.get("target_orientation"),
                 "strategy": parsed.get("strategy"),
                 "target_ratio": parsed.get("target_ratio"),
+                "compression_level": compression_level,
                 "orientation_explicit": parsed.get("orientation_explicit", False),
                 "strategy_explicit": parsed.get("strategy_explicit", False),
                 "ratio_explicit": parsed.get("ratio_explicit", False),
+                "compression_explicit": compression_explicit,
                 "response": parsed.get("response", ""),
-                "all_params_provided": parsed.get("orientation_explicit", False) and parsed.get("strategy_explicit", False)
+                "all_params_provided": all_params_provided
             }
 
         # JSON 解析失败，返回原始内容作为响应

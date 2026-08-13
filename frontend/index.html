@@ -169,7 +169,7 @@
             <!-- 功能标签栏 -->
             <div class="feature-bar">
                 <button class="feature-tab" data-feature="orient" onclick="selectFeature('orient', event)">横竖屏转换</button>
-                <button class="feature-tab disabled" data-feature="compress">视频压缩</button>
+                <button class="feature-tab" data-feature="compress" onclick="selectFeature('compress', event)">视频压缩</button>
                 <button class="feature-tab disabled" data-feature="cut">视频裁剪</button>
                 <button class="feature-tab disabled" data-feature="format">视频格式转换</button>
                 <button class="feature-tab disabled" data-feature="info">视频信息获取</button>
@@ -203,11 +203,11 @@
             <!-- 视频压缩参数面板 (占位) -->
             <div class="param-panel" id="paramPanel_compress">
                 <div class="param-section">
-                    <div class="param-label">压缩质量</div>
+                    <div class="param-label">压缩级别</div>
                     <div class="param-options">
-                        <button class="param-option active">高质量</button>
-                        <button class="param-option">中等质量</button>
-                        <button class="param-option">低质量</button>
+                        <button class="param-option" data-compression="low" onclick="selectCompression(this)">低压缩（高质量）</button>
+                        <button class="param-option active" data-compression="medium" onclick="selectCompression(this)">中压缩</button>
+                        <button class="param-option" data-compression="high" onclick="selectCompression(this)">高压缩（小体积）</button>
                     </div>
                 </div>
             </div>
@@ -284,6 +284,7 @@
         let selectedStrategy = 'pad';
         let selectedOrientation = 'portrait';
         let selectedOrientationText = '竖屏 9:16';
+        let selectedCompression = 'medium';
         let selectedFile = null;
         let currentVideoData = null;
         let lastAssistantMsgId = null;
@@ -551,6 +552,12 @@
             });
         }
 
+        function selectCompression(el) {
+            document.querySelectorAll('#paramPanel_compress .param-option').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedCompression = el.dataset.compression;
+        }
+
         // 发送消息
         async function sendMessage() {
             const input = document.getElementById('messageInput');
@@ -572,6 +579,9 @@
             if (message && currentFeature === 'orient' && selectedOrientation && selectedStrategy) {
                 const strategyNames = { pad: '填充黑边', crop: '中心裁剪', pan_scroll: '平移运镜', smart_crop: '智能裁剪', stretch: '拉伸填充', mirror_scroll: '镜像滚动' };
                 fullMessage = `${message} [用户已选择参数：目标方向=${selectedOrientationText}，转换策略=${strategyNames[selectedStrategy]}]`;
+            } else if (message && currentFeature === 'compress' && selectedCompression) {
+                const levelNames = { low: '低', medium: '中', high: '高' };
+                fullMessage = `${message} [用户已选择参数：压缩级别=${levelNames[selectedCompression]}]`;
             }
 
             const emptyState = document.getElementById('emptyState');

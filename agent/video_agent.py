@@ -197,6 +197,22 @@ def _parse_ui_params(user_input: str) -> dict:
     if result.get("target_orientation") and result.get("strategy"):
         result["found"] = True
 
+    # 解析压缩级别
+    compress_match = re.search(r'压缩级别\s*=\s*([^，,\]]+)', user_input)
+    if compress_match:
+        level_text = compress_match.group(1).strip()
+        level_map = {
+            "低": "low",
+            "中": "medium",
+            "高": "high",
+        }
+        for name, level in level_map.items():
+            if name in level_text:
+                result["compression_level"] = level
+                result["compression_level_text"] = name
+                result["found"] = True
+                break
+
     return result
 
 
@@ -243,6 +259,9 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             llm = MinMaxLLM(api_key=LLM_API_KEY)
             parsed = llm_parse_intent(user_input, llm)
 
+            target_feature = parsed.get("target_feature", "transform")
+            compression_level = parsed.get("compression_level")
+            compression_explicit = parsed.get("compression_explicit", False)
             target_orientation = parsed.get("target_orientation")
             orientation_explicit = parsed.get("orientation_explicit", False)
             strategy = parsed.get("strategy")
@@ -251,6 +270,22 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             ratio_explicit = parsed.get("ratio_explicit", False)
             llm_response = parsed.get("response", "")
             all_params_provided = parsed.get("all_params_provided", False)
+
+            # 如果是压缩请求
+            if target_feature == "compress":
+                state["current_feature"] = "compress"
+                state["compression_level"] = compression_level
+                state["compression_explicit"] = compression_explicit
+                state["all_params_provided"] = all_params_provided
+                state["pending_question"] = None if all_params_provided else "请选择压缩级别"
+
+                msg = ConversationMessage(
+                    role="assistant",
+                    content=llm_response,
+                    timestamp=datetime.now().isoformat(),
+                )
+                state["messages"].append(msg)
+                return state
 
             # 转换方向格式
             if target_orientation and isinstance(target_orientation, str):
@@ -267,6 +302,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             strategy_explicit = False
             ratio = None
             ratio_explicit = False
+            target_feature = "transform"
     else:
         # 无 LLM 时使用默认响应
         llm_response = "请告诉我您想要的转换方式，例如：'把视频转成竖屏，使用智能裁剪'"
@@ -276,6 +312,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         strategy_explicit = False
         ratio = None
         ratio_explicit = False
+        target_feature = "transform"
 
     # 更新状态
     if target_orientation:
@@ -430,6 +467,57 @@ def execute_transform(state: VideoAgentState) -> VideoAgentState:
     return state
 
 
+def execute_compress(state: VideoAgentState) -> VideoAgentState:
+    """执行视频压缩"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_path).stem
+    suffix = Path(video_path).suffix
+    output_path = str(output_dir / f"compressed_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        from video.processor import compress_video
+
+        compression_level = state.get("compression_level", "medium")
+
+        def progress_callback(progress: float):
+            pass
+
+        compress_video(video_path, output_path, compression_level, progress_callback)
+
+        # 获取文件大小信息
+        original_size = os.path.getsize(video_path)
+        compressed_size = os.path.getsize(output_path)
+
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"压缩完成！\n\n原始大小: {original_size/1024/1024:.2f}MB\n压缩后: {compressed_size/1024/1024:.2f}MB\n压缩比: {compressed_size/original_size:.1%}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"压缩异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
 def confirm_complete(state: VideoAgentState) -> VideoAgentState:
     """确认完成"""
     state["pending_question"] = None
@@ -509,10 +597,13 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
 
 # ============ Route Functions ============
 
-def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "waiting_for_user"]:
+def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "execute_compress", "waiting_for_user"]:
     """判断下一步"""
     if state.get("pending_question"):
         return "waiting_for_user"
+    # 压缩流程
+    if state.get("current_feature") == "compress" and state.get("all_params_provided"):
+        return "execute_compress"
     # 所有参数都提供了才执行转换
     if state.get("all_params_provided"):
         return "execute_transform"
@@ -533,17 +624,32 @@ def create_video_agent_graph():
     graph.add_node("detect_video", detect_video)
     graph.add_node("select_strategy", select_strategy)
     graph.add_node("execute_transform", execute_transform)
+    graph.add_node("execute_compress", execute_compress)
     graph.add_node("confirm_complete", confirm_complete)
     graph.add_node("handle_user_response", handle_user_response)
 
     # 设置入口
     graph.set_entry_point("analyze_intent")
 
-    # 主流程
+    # 主流程 - detect_video 后面根据 current_feature 决定下一步
     graph.add_edge("analyze_intent", "detect_video")
-    graph.add_edge("detect_video", "select_strategy")
 
-    # 条件边
+    # detect_video 根据 current_feature 决定下一步
+    def next_after_detect(state: VideoAgentState) -> Literal["select_strategy", "execute_compress"]:
+        if state.get("current_feature") == "compress":
+            return "execute_compress"
+        return "select_strategy"
+
+    graph.add_conditional_edges(
+        "detect_video",
+        next_after_detect,
+        {
+            "select_strategy": "select_strategy",
+            "execute_compress": "execute_compress",
+        }
+    )
+
+    # select_strategy 条件边
     graph.add_conditional_edges(
         "select_strategy",
         should_proceed,
@@ -557,6 +663,7 @@ def create_video_agent_graph():
     # waiting_for_user 路径：直接结束，等待用户下次请求携带新输入
     graph.add_edge("handle_user_response", END)
     graph.add_edge("execute_transform", "confirm_complete")
+    graph.add_edge("execute_compress", "confirm_complete")
     graph.add_edge("confirm_complete", END)
 
     return graph.compile()
