@@ -157,6 +157,10 @@ def transform(
         else:
             target_ratio = 16 / 9
 
+        # stretch 策略需要使用用户指定的确切比例，不要覆盖
+        if request.strategy == "stretch" and request.target_ratio:
+            target_ratio = request.target_ratio
+
         # 7. 执行转换
         if progress_callback:
             progress_callback(0.1)
