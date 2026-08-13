@@ -93,6 +93,8 @@ def parse_intent(user_input: str, llm: MinMaxLLM) -> dict:
 
 请分析用户意图，只返回以下 JSON 格式（不要有任何其他内容）：
 
+参数识别优先级：用户通过UI选择的参数优先于用户文字描述。
+
 方向识别：
 - 如果用户说"竖屏"、"转竖屏"、"短视频"、"9:16"、"4:5"、"2:3" -> target_orientation="portrait", orientation_explicit=true
 - 如果用户说"横屏"、"转横屏"、"16:9"、"21:9"、"4:3"、"3:2" -> target_orientation="landscape", orientation_explicit=true
@@ -102,6 +104,9 @@ def parse_intent(user_input: str, llm: MinMaxLLM) -> dict:
 - 如果用户说"智能裁剪"、"AI裁剪" -> strategy="smart_crop", strategy_explicit=true
 - 如果用户说"裁剪"、"切边" -> strategy="crop", strategy_explicit=true
 - 如果用户说"填充"、"黑边" -> strategy="pad", strategy_explicit=true
+- 如果用户说"拉伸填充"、"拉伸" -> strategy="stretch", strategy_explicit=true
+- 如果用户说"镜像滚动"、"镜像" -> strategy="mirror_scroll", strategy_explicit=true
+- 如果用户说"平移运镜"、"平移" -> strategy="pan_scroll", strategy_explicit=true
 - 如果用户没有说策略 -> strategy=null, strategy_explicit=false
 
 比例识别（返回 float 值）：
@@ -115,13 +120,27 @@ def parse_intent(user_input: str, llm: MinMaxLLM) -> dict:
 - 如果用户说"3:2"、"3/2" -> target_ratio=1.5, ratio_explicit=true
 - 如果用户没有说比例，默认竖屏用 9:16 (0.5625)，横屏用 16:9 (1.7778)，ratio_explicit=false
 
+UI选择参数识别：
+- 如果用户输入中包含"[用户已选择参数：...]"格式，优先使用其中指定的参数
+- "竖屏 9:16" -> target_orientation="portrait", target_ratio=0.5625
+- "竖屏 4:5" -> target_orientation="portrait", target_ratio=0.8
+- "横屏 16:9" -> target_orientation="landscape", target_ratio=1.7778
+- "横屏 21:9" -> target_orientation="landscape", target_ratio=2.3333
+- "横屏 4:3" -> target_orientation="landscape", target_ratio=1.3333
+- "填充黑边" -> strategy="pad"
+- "中心裁剪" -> strategy="crop"
+- "智能裁剪" -> strategy="smart_crop"
+- "拉伸填充" -> strategy="stretch"
+- "镜像滚动" -> strategy="mirror_scroll"
+- "平移运镜" -> strategy="pan_scroll"
+
 生成回复：
 - 如果缺少参数，必须在回复中说明已使用的默认值，并列出所有可用策略供用户选择
 - 例如："我理解了，您想把视频转换为竖屏（默认9:16比例）。请问使用哪种转换策略？支持：1. 智能裁剪 - AI自动裁剪保留主体；2. 中心裁剪 - 直接裁剪可能丢失边缘；3. 填充黑边 - 添加黑边保持所有内容完整。您也可以指定目标比例如9:16、4:5等。4.拉伸填充 - 直接拉伸视频，可能变形。5.镜像滚动 - 适合风景视频，保持内容完整。"
 - 如果所有参数都有，回复如："好的，我把视频转换为竖屏（9:16），使用智能裁剪策略。"
 
 JSON格式（必须严格遵守，不要有其他内容）：
-{"target_orientation": "portrait/landscape/null", "strategy": "pad/crop/smart_crop/null", "target_ratio": 0.5625/0.8/1.0/0.6667/1.7778/2.3333/1.3333/1.5/null, "orientation_explicit": true/false, "strategy_explicit": true/false, "ratio_explicit": true/false, "response": "你的回复", "all_params_provided": true/false}"""
+{"target_orientation": "portrait/landscape/null", "strategy": "pad/crop/smart_crop/stretch/mirror_scroll/pan_scroll/null", "target_ratio": 0.5625/0.8/1.0/0.6667/1.7778/2.3333/1.3333/1.5/null, "orientation_explicit": true/false, "strategy_explicit": true/false, "ratio_explicit": true/false, "response": "你的回复", "all_params_provided": true/false}"""
 
     try:
         # 直接使用字典格式的消息
