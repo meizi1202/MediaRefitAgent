@@ -25,6 +25,7 @@
         .session-item .delete { opacity: 0; padding: 4px; border-radius: 4px; background: #333; }
         .session-item:hover .delete { opacity: 1; }
         .session-item .delete:hover { background: #c00; }
+        .session-rename-input { background: #333; border: 1px solid #4CAF50; border-radius: 4px; color: #fff; font-size: 13px; padding: 4px 8px; width: 100%; outline: none; }
 
         /* 主内容区 */
         .main { display: flex; flex-direction: column; height: 100vh; }
@@ -331,10 +332,42 @@
             list.innerHTML = sessions.map(s => `
                 <div class="session-item ${s.session_id === currentSessionId ? 'active' : ''}" onclick="selectSession('${s.session_id}')">
                     <span class="icon">💬</span>
-                    <span class="name">${s.name || s.session_id}</span>
+                    <span class="name" ondblclick="startRenameSession('${s.session_id}', this)">${s.name || s.session_id}</span>
                     <span class="delete" onclick="event.stopPropagation(); deleteSession('${s.session_id}')">✕</span>
                 </div>
             `).join('');
+        }
+
+        function startRenameSession(sessionId, nameEl) {
+            const session = sessions.find(s => s.session_id === sessionId);
+            if (!session) return;
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'session-rename-input';
+            input.value = session.name;
+
+            input.onblur = () => saveRenameSession(sessionId, input.value);
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    saveRenameSession(sessionId, input.value);
+                } else if (e.key === 'Escape') {
+                    renderSessions();
+                }
+            };
+
+            nameEl.replaceWith(input);
+            input.focus();
+            input.select();
+        }
+
+        function saveRenameSession(sessionId, newName) {
+            const session = sessions.find(s => s.session_id === sessionId);
+            if (session && newName.trim()) {
+                session.name = newName.trim();
+                saveSessionsToStorage();
+            }
+            renderSessions();
         }
 
         function createNewSession() {
@@ -645,9 +678,11 @@
 
                         let session = sessions.find(s => s.session_id === currentSessionId);
                         if (!session) {
+                            // 使用用户的第一条消息作为会话标题
+                            const firstUserMsg = userMsg.content.substring(0, 30) || '新会话';
                             session = {
                                 session_id: currentSessionId,
-                                name: data.message.substring(0, 20) + '...',
+                                name: firstUserMsg + (firstUserMsg.length >= 30 ? '...' : ''),
                                 messages: [],
                                 created: new Date().toISOString()
                             };
