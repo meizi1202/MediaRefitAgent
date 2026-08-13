@@ -539,6 +539,9 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
             llm = MinMaxLLM(api_key=LLM_API_KEY)
             parsed = llm_parse_intent(user_input, llm)
 
+            target_feature = parsed.get("target_feature", state.get("current_feature"))
+            compression_level = parsed.get("compression_level")
+            compression_explicit = parsed.get("compression_explicit", False)
             target_orientation = parsed.get("target_orientation")
             orientation_explicit = parsed.get("orientation_explicit", False)
             strategy = parsed.get("strategy")
@@ -549,19 +552,29 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
             all_params_provided = parsed.get("all_params_provided", False)
 
             # 更新状态
-            if target_orientation and orientation_explicit:
-                state["target_orientation"] = target_orientation.lower()
-            if strategy and strategy_explicit:
-                state["strategy"] = strategy
-            if ratio and ratio_explicit:
-                state["target_ratio"] = ratio
+            if target_feature == "compress":
+                state["current_feature"] = "compress"
+                if compression_level:
+                    state["compression_level"] = compression_level
+                state["compression_explicit"] = compression_explicit
+                state["all_params_provided"] = compression_explicit and bool(compression_level)
+                state["pending_question"] = None if state["all_params_provided"] else "请选择压缩级别"
+            else:
+                # convert 或其他
+                state["current_feature"] = "convert"
+                if target_orientation and orientation_explicit:
+                    state["target_orientation"] = target_orientation.lower()
+                if strategy and strategy_explicit:
+                    state["strategy"] = strategy
+                if ratio and ratio_explicit:
+                    state["target_ratio"] = ratio
 
-            state["orientation_explicit"] = state.get("orientation_explicit") or orientation_explicit
-            state["strategy_explicit"] = state.get("strategy_explicit") or strategy_explicit
-            state["ratio_explicit"] = state.get("ratio_explicit") or ratio_explicit
-            state["all_params_provided"] = all_params_provided or (
-                state.get("orientation_explicit") and state.get("strategy_explicit")
-            )
+                state["orientation_explicit"] = state.get("orientation_explicit") or orientation_explicit
+                state["strategy_explicit"] = state.get("strategy_explicit") or strategy_explicit
+                state["ratio_explicit"] = state.get("ratio_explicit") or ratio_explicit
+                state["all_params_provided"] = all_params_provided or (
+                    state.get("orientation_explicit") and state.get("strategy_explicit")
+                )
 
             # 添加 LLM 响应
             if llm_response:
