@@ -385,7 +385,7 @@ def compress_video(
     progress_callback: Optional[Callable[[float], None]] = None,
 ) -> bool:
     """
-    压缩视频
+    压缩视频（保留原始分辨率、帧率、像素格式）
 
     Args:
         input_path: 输入路径
@@ -396,27 +396,45 @@ def compress_video(
     Returns:
         是否成功
     """
-    # 压缩级别参数映射
-    # CRF: 值越小质量越高文件越大 (18-28 是合理范围)
-    # preset: ultrafast 压缩效率低，slow 压缩效率高
-    level_params = {
-        "low": {"crf": 18, "preset": "medium", "description": "高质量"},
-        "medium": {"crf": 23, "preset": "fast", "description": "中等质量"},
-        "high": {"crf": 28, "preset": "slow", "description": "小体积"},
-    }
-    params = level_params.get(compression_level, level_params["medium"])
+    if compression_level == "low":
+        # low: 直接复制流，不重新编码，最小化质量损失
+        cmd = [
+            FFMPEG_PATH,
+            "-y",
+            "-i", input_path,
+            "-c:v", "copy",
+            "-c:a", "copy",
+            output_path,
+        ]
+    else:
+        # medium/high: 重新编码以减小体积
+        # 保留原始编码格式 (h265 -> libx265, h264 -> libx264)
+        metadata = get_video_metadata(input_path)
+        codec_map = {"h264": "libx264", "h265": "libx265", "hevc": "libx265"}
+        original_codec = codec_map.get(metadata.codec, "libx264") if metadata.codec else "libx264"
 
-    cmd = [
-        FFMPEG_PATH,
-        "-y",
-        "-i", input_path,
-        "-c:v", "libx264",
-        "-preset", params["preset"],
-        "-crf", params["crf"],
-        "-c:a", "aac",
-        "-b:a", "128k",
-        output_path,
-    ]
+        # 压缩级别参数映射
+        # CRF: 值越大质量越低文件越小 (18-35 范围)
+        # low=直接复制, medium=CRF28(中等压缩), high=CRF32(高压缩)
+        level_params = {
+            "medium": {"crf": 28, "preset": "medium", "description": "中等压缩"},
+            "high": {"crf": 32, "preset": "slow", "description": "高压缩"},
+        }
+        params = level_params.get(compression_level, level_params["medium"])
+
+        cmd = [
+            FFMPEG_PATH,
+            "-y",
+            "-i", input_path,
+            "-c:v", original_codec,
+            "-preset", params["preset"],
+            "-crf", str(params["crf"]),
+            # 不使用 -vf scale，保留原始分辨率
+            # 不使用 -r，保留原始帧率
+            "-c:a", "aac",
+            "-b:a", "128k",
+            output_path,
+        ]
 
     success, error = run_ffmpeg(cmd, progress_callback)
     if not success:

@@ -611,6 +611,7 @@ async def agent_chat(
     message: str = Form(...),
     session_id: Optional[str] = Form(None),
     file: UploadFile = File(...),
+    api_key: Optional[str] = Form(None),
 ):
     """
     Agent 聊天接口（支持多轮对话）
@@ -619,6 +620,10 @@ async def agent_chat(
     """
     if not LANGGRAPH_AVAILABLE:
         raise HTTPException(status_code=500, detail="LangGraph not available, install: pip install langgraph")
+
+    # 设置 API key 到环境变量
+    if api_key:
+        os.environ["MINIMAX_API_KEY"] = api_key
 
     # 保存上传的文件
     suffix = Path(file.filename).suffix if file.filename else ".mp4"

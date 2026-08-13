@@ -601,8 +601,19 @@
 
             // 根据是否有消息决定调用哪个API
             if (message) {
-                formData.append('message', fullMessage);
+                // 检测消息是否关于压缩（无论是点击标签还是输入文字）
+                const isCompressionMessage = /压缩|压一下|变小|文件太大/.test(message);
+                console.log('[DEBUG] message:', message, 'currentFeature:', currentFeature, 'isCompressionMessage:', isCompressionMessage);
+                if (currentFeature === 'compress' || isCompressionMessage) {
+                    formData.append('message', fullMessage);
+                    // 压缩功能直接调用压缩接口，不走 Agent
+                    console.log('[DEBUG] Calling callCompressAPI');
+                    callCompressAPI(formData, fullMessage);
+                    return;
+                }
                 // 调用 Agent 接口进行 LLM 解析
+                formData.append('message', fullMessage);
+                console.log('[DEBUG] Calling callAgentAPI');
                 callAgentAPI(formData, fullMessage);
                 return;
             }
@@ -610,7 +621,11 @@
             // 没有消息，根据当前选中的功能生成指令
             const featureNames = { orient: '横竖屏转换', compress: '视频压缩', cut: '视频裁剪', format: '视频格式转换', info: '视频信息获取' };
 
-            if (currentFeature === 'orient' && selectedOrientation && selectedStrategy) {
+            if (currentFeature === 'compress') {
+                // 视频压缩直接调用 compress API
+                callCompressAPI(formData, '压缩视频');
+                return;
+            } else if (currentFeature === 'orient' && selectedOrientation && selectedStrategy) {
                 // 横竖屏转换且已选择方向和策略，直接调用 transform API
                 callTransformAPI(selectedOrientation, selectedStrategy);
                 return;
@@ -664,6 +679,59 @@
                         updatePreview(data);
                     } else {
                         addMessage('assistant', `转换失败: ${data.detail || '未知错误'}`);
+                    }
+                } catch (e) {
+                    hideAssistantTyping();
+                    addMessage('assistant', `请求失败: ${e.message}`);
+                }
+            }
+
+            async function callCompressAPI(formData, displayMessage) {
+                console.log('[DEBUG callCompressAPI] called with:', displayMessage);
+                // 压缩功能直接调用压缩接口，不走 Agent
+                const fileToUpload = selectedFile || fileInput.files[0];
+                if (!fileToUpload) {
+                    console.log('[DEBUG callCompressAPI] no file');
+                    alert('请上传视频文件');
+                    return;
+                }
+                console.log('[DEBUG callCompressAPI] file:', fileToUpload.name);
+
+                // 从消息中解析压缩级别，或使用 UI 选择
+                let compressionLevel = selectedCompression;
+                if (displayMessage) {
+                    if (/高压缩|高压缩级别|high/.test(displayMessage)) {
+                        compressionLevel = 'high';
+                    } else if (/中压缩|medium/.test(displayMessage)) {
+                        compressionLevel = 'medium';
+                    } else if (/低压缩|low/.test(displayMessage)) {
+                        compressionLevel = 'low';
+                    }
+                }
+                console.log('[DEBUG callCompressAPI] compressionLevel:', compressionLevel);
+
+                hideAssistantTyping();
+                showAssistantTyping();
+
+                const compressFormData = new FormData();
+                compressFormData.append('file', fileToUpload);
+                compressFormData.append('compression_level', compressionLevel);
+
+                try {
+                    const resp = await fetch(`${API_BASE}/api/compress`, {
+                        method: 'POST',
+                        body: compressFormData
+                    });
+                    const data = await resp.json();
+                    hideAssistantTyping();
+
+                    if (data.success) {
+                        const ratio = (data.compression_ratio * 100).toFixed(1);
+                        const msg = `压缩完成！\n\n原始大小: ${(data.original_size / 1024 / 1024).toFixed(2)}MB\n压缩后: ${(data.compressed_size / 1024 / 1024).toFixed(2)}MB\n压缩比: ${ratio}%`;
+                        addMessage('assistant', msg);
+                        updatePreviewForCompress(data, compressionLevel);
+                    } else {
+                        addMessage('assistant', `压缩失败: ${data.detail || '未知错误'}`);
                     }
                 } catch (e) {
                     hideAssistantTyping();
@@ -849,6 +917,34 @@
                     <div class="preview-actions">
                         <button class="preview-btn download" onclick="downloadVideo()">⬇️ 下载</button>
                         <button class="preview-btn regenerate" onclick="regenerateVideo()">🔄 重新生成</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updatePreviewForCompress(data, compressionLevel) {
+            currentVideoData = data;
+            const content = document.getElementById('previewContent');
+            const downloadUrl = data.download_url || `${API_BASE}/api/download/${data.output_path.split('/').pop().split('\\').pop()}`;
+
+            const levelNames = { low: '低压缩（高质量）', medium: '中压缩', high: '高压缩（小体积）' };
+            const ratio = (data.compression_ratio * 100).toFixed(1);
+            const displayLevel = compressionLevel || selectedCompression || 'medium';
+
+            content.innerHTML = `
+                <div class="video-container">
+                    <video class="video-player" controls playsinline>
+                        <source src="${downloadUrl}" type="video/mp4">
+                        您的浏览器不支持视频播放
+                    </video>
+                    <div class="video-info">
+                        <div class="row"><span class="label">压缩级别</span><span class="value">${levelNames[displayLevel] || displayLevel}</span></div>
+                        <div class="row"><span class="label">原始大小</span><span class="value">${(data.original_size / 1024 / 1024).toFixed(2)}MB</span></div>
+                        <div class="row"><span class="label">压缩后</span><span class="value">${(data.compressed_size / 1024 / 1024).toFixed(2)}MB</span></div>
+                        <div class="row"><span class="label">压缩比</span><span class="value">${ratio}%</span></div>
+                    </div>
+                    <div class="preview-actions">
+                        <button class="preview-btn download" onclick="downloadVideo()">⬇️ 下载</button>
                     </div>
                 </div>
             `;

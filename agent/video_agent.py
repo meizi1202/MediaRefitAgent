@@ -25,17 +25,22 @@ except ImportError:
 from video.transformer import transform, TransformRequest, TransformResult
 from ml.orientation_detector import detect_orientation, OrientationResult
 
-# LLM-based intent parsing
+# LLM-based intent parsing - checked at runtime to allow API key from request
 LLM_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
-LLM_INTENT_AVAILABLE = bool(LLM_API_KEY)
 llm_parse_intent = None
 
-if LLM_INTENT_AVAILABLE:
-    try:
-        from agent.langchain_agent import parse_intent as llm_parse_intent
-    except ImportError:
-        llm_parse_intent = None
-        LLM_INTENT_AVAILABLE = False
+# Lazy import for LLM parsing
+def _get_llm_parse_intent():
+    global llm_parse_intent
+    if llm_parse_intent is None:
+        api_key = os.environ.get("MINIMAX_API_KEY", "")
+        if api_key:
+            try:
+                from agent.langchain_agent import parse_intent as llm_parse_intent_impl
+                llm_parse_intent = llm_parse_intent_impl
+            except ImportError:
+                llm_parse_intent = None
+    return llm_parse_intent
 
 
 # ============ State Definition ============
@@ -253,11 +258,12 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         return state
 
     # 优先使用 LLM 意图解析（如果可用）
-    if LLM_INTENT_AVAILABLE and llm_parse_intent:
+    _llm_parse_intent = _get_llm_parse_intent()
+    if _llm_parse_intent:
         try:
             from agent.langchain_agent import MinMaxLLM
             llm = MinMaxLLM(api_key=LLM_API_KEY)
-            parsed = llm_parse_intent(user_input, llm)
+            parsed = _llm_parse_intent(user_input, llm)
 
             target_feature = parsed.get("target_feature", "convert")
             compression_level = parsed.get("compression_level")
@@ -408,8 +414,9 @@ def select_strategy(state: VideoAgentState) -> VideoAgentState:
         state["current_step"] = "execute_transform"
         return state
 
-    # 缺少参数，设置为等待用户回答
-    state["pending_question"] = "waiting_for_params"
+    # 缺少参数，设置为等待用户回答（如果已有pending_question则保留，如压缩时的"请选择压缩级别"）
+    if not state.get("pending_question"):
+        state["pending_question"] = "waiting_for_params"
     state["current_step"] = "waiting_for_user"
     return state
 
@@ -538,7 +545,8 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     user_input = state["user_input"]
 
     # 使用 LLM 解析用户的补充信息
-    if LLM_INTENT_AVAILABLE and llm_parse_intent:
+    _llm_parse_intent = _get_llm_parse_intent()
+    if _llm_parse_intent:
         try:
             from agent.langchain_agent import MinMaxLLM
             llm = MinMaxLLM(api_key=LLM_API_KEY)
@@ -611,7 +619,17 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
             state["ratio_explicit"] = True
         state["all_params_provided"] = state.get("orientation_explicit") and state.get("strategy_explicit")
 
-    state["pending_question"] = None
+    # 只有在参数完整时才清除 pending_question
+    if not state.get("all_params_provided"):
+        state["pending_question"] = state.get("pending_question", "waiting_for_params")
+    else:
+        state["pending_question"] = None
+        # 参数完整时直接设置执行步骤（不要经过 select_strategy 再次分配）
+        if state.get("current_feature") == "compress":
+            state["current_step"] = "execute_compress"
+        else:
+            state["current_step"] = "execute_transform"
+        return state
     state["current_step"] = "select_strategy"
 
     return state
@@ -621,8 +639,15 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
 
 def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "execute_compress", "waiting_for_user"]:
     """判断下一步"""
+    # 如果 current_step 已经被设为具体执行步骤，直接执行
+    current_step = state.get("current_step")
+    if current_step in ("execute_transform", "execute_compress"):
+        return current_step
+
+    # 有待回答问题时等待用户
     if state.get("pending_question"):
         return "waiting_for_user"
+
     # 压缩流程
     if state.get("current_feature") == "compress" and state.get("all_params_provided"):
         return "execute_compress"
@@ -653,23 +678,9 @@ def create_video_agent_graph():
     # 设置入口
     graph.set_entry_point("analyze_intent")
 
-    # 主流程 - detect_video 后面根据 current_feature 决定下一步
+    # 主流程
     graph.add_edge("analyze_intent", "detect_video")
-
-    # detect_video 根据 current_feature 决定下一步
-    def next_after_detect(state: VideoAgentState) -> Literal["select_strategy", "execute_compress"]:
-        if state.get("current_feature") == "compress":
-            return "execute_compress"
-        return "select_strategy"
-
-    graph.add_conditional_edges(
-        "detect_video",
-        next_after_detect,
-        {
-            "select_strategy": "select_strategy",
-            "execute_compress": "execute_compress",
-        }
-    )
+    graph.add_edge("detect_video", "select_strategy")
 
     # select_strategy 条件边
     graph.add_conditional_edges(
