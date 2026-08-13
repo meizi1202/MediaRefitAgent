@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -L --retry 3 --retry-delay 5 -o C:/ffmpeg/ffmpeg.zip \"https://github.com/GyanD/codexffmpeg/releases/download/6.1/ffmpeg-6.1-essentials_build.zip\")"
+    ]
+  }
+}

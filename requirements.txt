@@ -1,0 +1,21 @@
+# Video Processing
+ffmpeg-python>=0.2.0
+Pillow>=10.0.0
+
+# ML
+torch>=2.0.0
+torchvision>=0.15.0
+ultralytics>=8.0.0  # YOLO for smart cropping
+
+# FastAPI
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+python-multipart>=0.0.6
+
+# Agent Framework
+langchain>=0.1.0
+langgraph>=0.0.20
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.0.0

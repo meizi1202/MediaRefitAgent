@@ -1,0 +1,681 @@
+"""
+视频转换 Agent - 基于 LangGraph
+
+状态机设计：
+analyze_intent → detect_video → select_strategy → execute_transform → confirm_complete
+
+支持多轮对话，可以记忆上下文
+"""
+from typing import Optional, Literal, TypedDict, Annotated
+from dataclasses import dataclass, field
+from datetime import datetime
+import shutil
+import tempfile
+from pathlib import Path
+import json
+import os
+
+# LangGraph imports
+try:
+    from langgraph.graph import StateGraph, END
+    LANGGRAPH_AVAILABLE = True
+except ImportError:
+    LANGGRAPH_AVAILABLE = False
+
+from video.transformer import transform, TransformRequest, TransformResult
+from ml.orientation_detector import detect_orientation, OrientationResult
+
+# LLM-based intent parsing
+LLM_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
+LLM_INTENT_AVAILABLE = bool(LLM_API_KEY)
+llm_parse_intent = None
+
+if LLM_INTENT_AVAILABLE:
+    try:
+        from agent.langchain_agent import parse_intent as llm_parse_intent
+    except ImportError:
+        llm_parse_intent = None
+        LLM_INTENT_AVAILABLE = False
+
+
+# ============ State Definition ============
+
+class ConversationMessage(TypedDict):
+    """对话消息"""
+    role: str  # user / assistant / system
+    content: str
+    timestamp: str
+
+
+class VideoAgentState(TypedDict):
+    """Agent 状态"""
+    # 用户输入
+    user_input: str
+    # 视频信息
+    video_path: Optional[str]
+    temp_video_path: Optional[str]
+    original_orientation: Optional[str]
+    # 转换参数
+    target_orientation: Optional[str]
+    strategy: Optional[str]
+    target_ratio: float
+    # 参数是否明确指定
+    orientation_explicit: bool
+    strategy_explicit: bool
+    ratio_explicit: bool
+    all_params_provided: bool
+    # 处理状态
+    current_step: str
+    messages: list[ConversationMessage]
+    transform_result: Optional[TransformResult]
+    error: Optional[str]
+    # 多轮对话支持
+    session_id: Optional[str]
+    history: list[ConversationMessage]
+    pending_question: Optional[str]  # 等待用户回答的问题
+
+
+# ============ Intent Parser ============
+
+class IntentParser:
+    """意图解析器"""
+
+    # 方向关键词
+    ORIENTATION_KEYWORDS = {
+        "portrait": ["竖屏", "portrait", "垂直", "竖", "9:16", "9/16", "4:5", "4/5", "1:1", "1/1", "2:3", "2/3", "短视频", "抖音", "快手", "Instagram", "IG"],
+        "landscape": ["横屏", "landscape", "水平", "横", "16:9", "16/9", "21:9", "21/9", "4:3", "4/3", "3:2", "3/2", "横版", "电影"],
+    }
+
+    # 策略关键词
+    STRATEGY_KEYWORDS = {
+        "smart_crop": ["智能裁剪", "smart", "AI裁剪", "ai crop", "智能", "AI"],
+        "crop": ["裁剪", "crop", "切", "截"],
+        "pad": ["填充", "pad", "黑边", "留边", "保持完整"],
+        "rotate": ["旋转", "rotate", "旋转90度", "rotate90"],
+    }
+
+    @classmethod
+    def parse_orientation(cls, text: str) -> tuple[Optional[str], bool]:
+        """解析目标方向，返回 (方向, 是否明确指定)"""
+        text_lower = text.lower()
+        for orientation, keywords in cls.ORIENTATION_KEYWORDS.items():
+            for kw in keywords:
+                if kw in text_lower:
+                    return orientation, True
+        return None, False
+
+    @classmethod
+    def parse_strategy(cls, text: str) -> tuple[Optional[str], bool]:
+        """解析转换策略，返回 (策略, 是否明确指定)"""
+        text_lower = text.lower()
+        for strategy, keywords in cls.STRATEGY_KEYWORDS.items():
+            for kw in keywords:
+                if kw in text_lower:
+                    return strategy, True
+        return None, False  # 不再默认返回 "pad"
+
+    @classmethod
+    def parse_ratio(cls, text: str) -> tuple[Optional[float], bool]:
+        """解析比例参数，返回 (比例, 是否明确指定)"""
+        # 支持 9:16, 9/16, 16:9, 16/9 等格式
+        import re
+        patterns = [
+            r'(\d+):(\d+)',
+            r'(\d+)/(\d+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                w, h = int(match.group(1)), int(match.group(2))
+                if h > 0:
+                    return w / h, True
+        return None, False
+
+    @classmethod
+    def parse(cls, text: str) -> dict:
+        """解析用户输入"""
+        orientation, orientation_explicit = cls.parse_orientation(text)
+        strategy, strategy_explicit = cls.parse_strategy(text)
+        ratio, ratio_explicit = cls.parse_ratio(text)
+        return {
+            "orientation": orientation,
+            "orientation_explicit": orientation_explicit,
+            "strategy": strategy,
+            "strategy_explicit": strategy_explicit,
+            "ratio": ratio,
+            "ratio_explicit": ratio_explicit,
+        }
+
+
+# ============ Node Functions ============
+
+def analyze_intent(state: VideoAgentState) -> VideoAgentState:
+    """分析用户意图 - 使用 LLM 生成响应"""
+    user_input = state["user_input"]
+
+    llm_response = ""
+    all_params_provided = False
+
+    # 优先使用 LLM 意图解析（如果可用）
+    if LLM_INTENT_AVAILABLE and llm_parse_intent:
+        try:
+            from agent.langchain_agent import MinMaxLLM
+            llm = MinMaxLLM(api_key=LLM_API_KEY)
+            parsed = llm_parse_intent(user_input, llm)
+
+            target_orientation = parsed.get("target_orientation")
+            orientation_explicit = parsed.get("orientation_explicit", False)
+            strategy = parsed.get("strategy")
+            strategy_explicit = parsed.get("strategy_explicit", False)
+            ratio = parsed.get("target_ratio")
+            ratio_explicit = parsed.get("ratio_explicit", False)
+            llm_response = parsed.get("response", "")
+            all_params_provided = parsed.get("all_params_provided", False)
+
+            # 转换方向格式
+            if target_orientation and isinstance(target_orientation, str):
+                target_orientation = target_orientation.lower()
+                if target_orientation not in ["portrait", "landscape"]:
+                    target_orientation = None
+                    orientation_explicit = False
+
+        except Exception as e:
+            llm_response = f"LLM 解析出错：{str(e)}"
+            target_orientation = None
+            orientation_explicit = False
+            strategy = None
+            strategy_explicit = False
+            ratio = None
+            ratio_explicit = False
+    else:
+        # 无 LLM 时使用默认响应
+        llm_response = "请告诉我您想要的转换方式，例如：'把视频转成竖屏，使用智能裁剪'"
+        target_orientation = None
+        orientation_explicit = False
+        strategy = None
+        strategy_explicit = False
+        ratio = None
+        ratio_explicit = False
+
+    # 更新状态
+    if target_orientation:
+        state["target_orientation"] = target_orientation
+    if strategy:
+        state["strategy"] = strategy
+    if ratio:
+        state["target_ratio"] = ratio
+
+    # 记录参数是否明确指定
+    state["orientation_explicit"] = orientation_explicit
+    state["strategy_explicit"] = strategy_explicit
+    state["ratio_explicit"] = ratio_explicit
+    state["all_params_provided"] = all_params_provided
+
+    state["current_step"] = "detect_video"
+
+    # 添加 LLM 的响应消息
+    if llm_response:
+        msg = ConversationMessage(
+            role="assistant",
+            content=llm_response,
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
+def detect_video(state: VideoAgentState) -> VideoAgentState:
+    """检测视频方向"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path or not Path(video_path).exists():
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        state["pending_question"] = None
+        return state
+
+    try:
+        result = detect_orientation(video_path)
+        state["original_orientation"] = result.orientation
+
+        orientation_display = {
+            "portrait": "竖屏",
+            "landscape": "横屏",
+            "square": "正方形",
+            "unknown": "未知",
+        }.get(result.orientation, result.orientation)
+
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"检测到视频是{orientation_display}的。",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+        state["current_step"] = "select_strategy"
+
+    except Exception as e:
+        state["error"] = f"方向检测失败: {str(e)}"
+        state["current_step"] = "confirm_complete"
+
+    return state
+
+
+def select_strategy(state: VideoAgentState) -> VideoAgentState:
+    """选择转换策略"""
+    # 检查方向是否相同
+    if state.get("target_orientation") and state.get("original_orientation"):
+        if state["original_orientation"] == state["target_orientation"]:
+            msg = ConversationMessage(
+                role="assistant",
+                content="视频方向已经是目标方向，无需转换。",
+                timestamp=datetime.now().isoformat(),
+            )
+            state["messages"].append(msg)
+            state["current_step"] = "confirm_complete"
+            return state
+
+    # LLM 已经在 analyze_intent 中生成了响应消息
+    # 如果所有参数都提供了，直接执行转换
+    if state.get("all_params_provided"):
+        state["current_step"] = "execute_transform"
+        return state
+
+    # 缺少参数，设置为等待用户回答
+    state["pending_question"] = "waiting_for_params"
+    state["current_step"] = "waiting_for_user"
+    return state
+
+
+def execute_transform(state: VideoAgentState) -> VideoAgentState:
+    """执行转换"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_path).stem
+    suffix = Path(video_path).suffix
+    output_path = str(output_dir / f"{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        request = TransformRequest(
+            input_path=video_path,
+            output_path=output_path,
+            target_orientation=state.get("target_orientation"),
+            strategy=state.get("strategy", "pad"),
+            target_ratio=state.get("target_ratio", 9/16),
+        )
+
+        def progress_callback(progress: float):
+            # 进度回调，可用于更新状态
+            pass
+
+        result = transform(request, progress_callback=progress_callback)
+        state["transform_result"] = result
+        state["current_step"] = "confirm_complete"
+
+        if result.success:
+            msg = ConversationMessage(
+                role="assistant",
+                content=f"转换完成！\n\n输出文件: {result.output_path}\n原始方向: {result.original_orientation}\n目标方向: {result.target_orientation}\n使用策略: {result.strategy_used}",
+                timestamp=datetime.now().isoformat(),
+            )
+            state["messages"].append(msg)
+        else:
+            state["error"] = result.error
+            msg = ConversationMessage(
+                role="assistant",
+                content=f"转换失败: {result.error}",
+                timestamp=datetime.now().isoformat(),
+            )
+            state["messages"].append(msg)
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"转换异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
+def confirm_complete(state: VideoAgentState) -> VideoAgentState:
+    """确认完成"""
+    state["pending_question"] = None
+    return state
+
+
+def handle_user_response(state: VideoAgentState) -> VideoAgentState:
+    """处理用户对问题的回答 - 使用 LLM 解析"""
+    user_input = state["user_input"]
+
+    # 使用 LLM 解析用户的补充信息
+    if LLM_INTENT_AVAILABLE and llm_parse_intent:
+        try:
+            from agent.langchain_agent import MinMaxLLM
+            llm = MinMaxLLM(api_key=LLM_API_KEY)
+            parsed = llm_parse_intent(user_input, llm)
+
+            target_orientation = parsed.get("target_orientation")
+            orientation_explicit = parsed.get("orientation_explicit", False)
+            strategy = parsed.get("strategy")
+            strategy_explicit = parsed.get("strategy_explicit", False)
+            ratio = parsed.get("target_ratio")
+            ratio_explicit = parsed.get("ratio_explicit", False)
+            llm_response = parsed.get("response", "")
+            all_params_provided = parsed.get("all_params_provided", False)
+
+            # 更新状态
+            if target_orientation and orientation_explicit:
+                state["target_orientation"] = target_orientation.lower()
+            if strategy and strategy_explicit:
+                state["strategy"] = strategy
+            if ratio and ratio_explicit:
+                state["target_ratio"] = ratio
+
+            state["orientation_explicit"] = state.get("orientation_explicit") or orientation_explicit
+            state["strategy_explicit"] = state.get("strategy_explicit") or strategy_explicit
+            state["ratio_explicit"] = state.get("ratio_explicit") or ratio_explicit
+            state["all_params_provided"] = all_params_provided or (
+                state.get("orientation_explicit") and state.get("strategy_explicit")
+            )
+
+            # 添加 LLM 响应
+            if llm_response:
+                msg = ConversationMessage(
+                    role="assistant",
+                    content=llm_response,
+                    timestamp=datetime.now().isoformat(),
+                )
+                state["messages"].append(msg)
+
+        except Exception as e:
+            msg = ConversationMessage(
+                role="assistant",
+                content=f"解析出错：{str(e)}",
+                timestamp=datetime.now().isoformat(),
+            )
+            state["messages"].append(msg)
+    else:
+        # 无 LLM 时的回退
+        parsed = IntentParser.parse(user_input)
+        if parsed["orientation_explicit"]:
+            state["target_orientation"] = parsed["orientation"]
+            state["orientation_explicit"] = True
+        if parsed["strategy_explicit"]:
+            state["strategy"] = parsed["strategy"]
+            state["strategy_explicit"] = True
+        if parsed["ratio_explicit"]:
+            state["target_ratio"] = parsed["ratio"]
+            state["ratio_explicit"] = True
+        state["all_params_provided"] = state.get("orientation_explicit") and state.get("strategy_explicit")
+
+    state["pending_question"] = None
+    state["current_step"] = "select_strategy"
+
+    return state
+
+
+# ============ Route Functions ============
+
+def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "waiting_for_user"]:
+    """判断下一步"""
+    if state.get("pending_question"):
+        return "waiting_for_user"
+    # 所有参数都提供了才执行转换
+    if state.get("all_params_provided"):
+        return "execute_transform"
+    return "select_strategy"
+
+
+# ============ Graph Construction ============
+
+def create_video_agent_graph():
+    """创建视频转换 Agent 图"""
+    if not LANGGRAPH_AVAILABLE:
+        return None
+
+    graph = StateGraph(VideoAgentState)
+
+    # 添加节点
+    graph.add_node("analyze_intent", analyze_intent)
+    graph.add_node("detect_video", detect_video)
+    graph.add_node("select_strategy", select_strategy)
+    graph.add_node("execute_transform", execute_transform)
+    graph.add_node("confirm_complete", confirm_complete)
+    graph.add_node("handle_user_response", handle_user_response)
+
+    # 设置入口
+    graph.set_entry_point("analyze_intent")
+
+    # 主流程
+    graph.add_edge("analyze_intent", "detect_video")
+    graph.add_edge("detect_video", "select_strategy")
+
+    # 条件边
+    graph.add_conditional_edges(
+        "select_strategy",
+        should_proceed,
+        {
+            "select_strategy": "select_strategy",
+            "execute_transform": "execute_transform",
+            "waiting_for_user": "handle_user_response",
+        }
+    )
+
+    # waiting_for_user 路径：直接结束，等待用户下次请求携带新输入
+    graph.add_edge("handle_user_response", END)
+    graph.add_edge("execute_transform", "confirm_complete")
+    graph.add_edge("confirm_complete", END)
+
+    return graph.compile()
+
+
+# ============ Agent Runner ============
+
+class VideoAgent:
+    """视频转换 Agent"""
+
+    def __init__(self):
+        self.graph = create_video_agent_graph()
+        self.sessions: dict[str, VideoAgentState] = {}
+
+    def _create_initial_state(
+        self,
+        user_input: str,
+        video_path: Optional[str] = None,
+        temp_video_path: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> VideoAgentState:
+        """创建初始状态"""
+        return VideoAgentState(
+            user_input=user_input,
+            video_path=video_path,
+            temp_video_path=temp_video_path,
+            original_orientation=None,
+            target_orientation=None,
+            strategy="pad",
+            target_ratio=9/16,
+            orientation_explicit=False,
+            strategy_explicit=False,
+            ratio_explicit=False,
+            all_params_provided=False,
+            current_step="analyze_intent",
+            messages=[],
+            transform_result=None,
+            error=None,
+            session_id=session_id or datetime.now().strftime("%Y%m%d%H%M%S"),
+            history=[],
+            pending_question=None,
+        )
+
+    def run(
+        self,
+        user_input: str,
+        video_path: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> VideoAgentState:
+        """
+        运行 Agent（单轮）
+
+        Args:
+            user_input: 用户输入（自然语言）
+            video_path: 视频文件路径
+            session_id: 会话 ID（用于多轮对话）
+
+        Returns:
+            最终状态
+        """
+        if not self.graph:
+            return {
+                "error": "LangGraph 不可用，请安装: pip install langgraph",
+                "current_step": "error",
+                "messages": [],
+            }
+
+        state = self._create_initial_state(
+            user_input=user_input,
+            video_path=video_path,
+            session_id=session_id,
+        )
+
+        result = self.graph.invoke(state)
+        return result
+
+    def process_video(
+        self,
+        user_input: str,
+        temp_video_path: str,
+        session_id: Optional[str] = None,
+    ) -> VideoAgentState:
+        """
+        处理上传的视频（多轮）
+
+        Args:
+            user_input: 用户输入
+            temp_video_path: 临时视频文件路径
+            session_id: 会话 ID
+
+        Returns:
+            最终状态
+        """
+        if not self.graph:
+            return {
+                "error": "LangGraph 不可用",
+                "current_step": "error",
+                "messages": [],
+            }
+
+        # 如果有 session，继续历史对话
+        if session_id and session_id in self.sessions:
+            state = self.sessions[session_id]
+            state["user_input"] = user_input
+            state["temp_video_path"] = temp_video_path
+        else:
+            state = self._create_initial_state(
+                user_input=user_input,
+                temp_video_path=temp_video_path,
+                session_id=session_id,
+            )
+
+        result = self.graph.invoke(state)
+
+        # 保存到 sessions
+        if session_id:
+            self.sessions[session_id] = result
+
+        return result
+
+    def continue_conversation(
+        self,
+        user_input: str,
+        session_id: str,
+    ) -> VideoAgentState:
+        """
+        继续多轮对话
+
+        Args:
+            user_input: 用户输入
+            session_id: 会话 ID
+
+        Returns:
+            更新后的状态
+        """
+        if session_id not in self.sessions:
+            return {
+                "error": "Session not found",
+                "current_step": "error",
+                "messages": [],
+            }
+
+        state = self.sessions[session_id]
+        state["user_input"] = user_input
+
+        result = self.graph.invoke(state)
+        self.sessions[session_id] = result
+        return result
+
+    def get_session(self, session_id: str) -> Optional[VideoAgentState]:
+        """获取会话状态"""
+        return self.sessions.get(session_id)
+
+    def delete_session(self, session_id: str) -> bool:
+        """删除会话"""
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+            return True
+        return False
+
+    def list_sessions(self) -> list[str]:
+        """列出所有会话 ID"""
+        return list(self.sessions.keys())
+
+
+# ============ Convenience Functions ============
+
+def run_video_agent(
+    user_input: str,
+    video_path: Optional[str] = None,
+) -> VideoAgentState:
+    """快捷运行函数"""
+    agent = VideoAgent()
+    return agent.run(user_input, video_path)
+
+
+def chat_with_agent(
+    user_input: str,
+    video_path: Optional[str] = None,
+) -> str:
+    """
+    简易聊天接口，返回助手的回复文本
+
+    Args:
+        user_input: 用户输入
+        video_path: 视频路径
+
+    Returns:
+        助手回复文本
+    """
+    agent = VideoAgent()
+    result = agent.run(user_input, video_path)
+
+    if result.get("error"):
+        return f"错误: {result['error']}"
+
+    # 返回最后一条助手消息
+    for msg in reversed(result.get("messages", [])):
+        if msg.get("role") == "assistant":
+            return msg.get("content", "")
+
+    return "处理完成"

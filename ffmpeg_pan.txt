@@ -1,0 +1,5 @@
+# FFmpeg command script for pan with center pause
+-i video/seg0002.mp4
+-vf "crop=ih*9/16:ih:if(lt(t\,5)\,480-96*t\,if(lt(t\,6)\,0\,if(lt(t\,11)\,96*t-480\,if(lt(t\,12)\,480\,if(lt(t\,17)\,480+96*(t-12)\,if(lt(t\,18)\,960\,if(lt(t\,23)\,1920-96*t\,480)))))))):0,scale=1080:1920,setsar=1:1"
+-c:v libx264 -preset ultrafast -crf 23
+-y video/output_seg0002_pan_v2.mp4

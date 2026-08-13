@@ -1,0 +1,3 @@
+file 'F:/code/MediaRefitAgent/video/seg0012.mp4'
+file 'F:/code/MediaRefitAgent/temp_mirror.mp4'
+file 'F:/code/MediaRefitAgent/video/seg0012.mp4'

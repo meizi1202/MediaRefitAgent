@@ -1,0 +1,26 @@
+INFO:     Started server process [43152]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+🚀 MediaRefitAgent API started (output_dir: F:\video)
+INFO:     172.18.98.97:55039 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     172.18.98.97:58234 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:49713 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     172.18.98.97:53326 - "GET / HTTP/1.1" 404 Not Found
+INFO:     172.18.98.97:53336 - "GET /docs HTTP/1.1" 200 OK
+INFO:     172.18.98.97:53349 - "GET /api/capabilities HTTP/1.1" 200 OK
+INFO:     172.18.98.97:63082 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:49666 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:49666 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:57668 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:50595 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:51696 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:53945 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:56096 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:60290 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:50160 - "POST /api/agent/chat HTTP/1.1" 200 OK
+INFO:     172.18.98.97:50160 - "GET /api/agent/sessions HTTP/1.1" 200 OK
+INFO:     172.18.98.97:59017 - "GET /api/download/tmpl34vg6wj_20260812_164132.mp4 HTTP/1.1" 206 Partial Content
+INFO:     172.18.98.97:53442 - "GET /api/download/tmpl34vg6wj_20260812_164132.mp4 HTTP/1.1" 206 Partial Content
+INFO:     172.18.98.97:50786 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     172.18.98.97:55949 - "GET /api/agent/sessions HTTP/1.1" 200 OK
