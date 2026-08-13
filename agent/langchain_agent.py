@@ -117,14 +117,16 @@ JSON格式（必须严格遵守）：
 
         # 提取 JSON
         json_str = None
+        in_json = False
         for line in content.split('\n'):
             line = line.strip()
-            if '{' in line:
+            if '{' in line and not in_json:
                 start = line.index('{')
                 json_str = line[start:]
-            if json_str and '}' in line:
-                end = line.index('}') + 1
-                json_str = json_str[:end]
+                in_json = True
+            elif in_json:
+                json_str += line
+            if in_json and '}' in line:
                 break
 
         if json_str:
