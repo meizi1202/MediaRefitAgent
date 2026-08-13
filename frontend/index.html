@@ -562,18 +562,25 @@
                 return;
             }
 
-            const emptyState = document.getElementById('emptyState');
-            if (emptyState) emptyState.remove();
-
-            addMessage('user', message || '[上传视频]');
-            input.value = '';
-
-            showAssistantTyping();
-
             // 保存文件
             if (fileInput.files[0]) {
                 selectedFile = fileInput.files[0];
             }
+
+            // 计算完整消息（包含UI选择的参数）
+            let fullMessage = message;
+            if (message && currentFeature === 'orient' && selectedOrientation && selectedStrategy) {
+                const strategyNames = { pad: '填充黑边', crop: '中心裁剪', pan_scroll: '平移运镜', smart_crop: '智能裁剪', stretch: '拉伸填充', mirror_scroll: '镜像滚动' };
+                fullMessage = `${message} [用户已选择参数：目标方向=${selectedOrientationText}，转换策略=${strategyNames[selectedStrategy]}]`;
+            }
+
+            const emptyState = document.getElementById('emptyState');
+            if (emptyState) emptyState.remove();
+
+            addMessage('user', fullMessage || '[上传视频]');
+            input.value = '';
+
+            showAssistantTyping();
 
             const formData = new FormData();
             if (fileInput.files[0]) {
@@ -582,15 +589,6 @@
 
             // 根据是否有消息决定调用哪个API
             if (message) {
-                // 用户输入了消息
-                let fullMessage = message;
-
-                // 如果用户已通过UI选择了参数，将参数信息附加到消息中
-                if (currentFeature === 'orient' && selectedOrientation && selectedStrategy) {
-                    const strategyNames = { pad: '填充黑边', crop: '中心裁剪', pan_scroll: '平移运镜', smart_crop: '智能裁剪', stretch: '拉伸填充', mirror_scroll: '镜像滚动' };
-                    fullMessage = `${message} [用户已选择参数：目标方向=${selectedOrientationText}，转换策略=${strategyNames[selectedStrategy]}]`;
-                }
-
                 formData.append('message', fullMessage);
                 // 调用 Agent 接口进行 LLM 解析
                 callAgentAPI(formData, fullMessage);
