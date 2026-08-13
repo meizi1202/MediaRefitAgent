@@ -167,7 +167,7 @@
 
             <!-- 功能标签栏 -->
             <div class="feature-bar">
-                <button class="feature-tab" data-feature="orient" onclick="selectFeature('orient')">横竖屏转换</button>
+                <button class="feature-tab" data-feature="orient" onclick="selectFeature('orient', event)">横竖屏转换</button>
                 <button class="feature-tab disabled" data-feature="compress">视频压缩</button>
                 <button class="feature-tab disabled" data-feature="cut">视频裁剪</button>
                 <button class="feature-tab disabled" data-feature="format">视频格式转换</button>
@@ -410,13 +410,40 @@
         }
 
         // 功能标签切换
-        function selectFeature(feature) {
+        function selectFeature(feature, event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            const selectedTab = document.querySelector(`.feature-tab[data-feature="${feature}"]`);
+            console.log('selectedTab:', selectedTab);
+            console.log('classList:', selectedTab ? Array.from(selectedTab.classList) : 'null');
+            const isActive = selectedTab ? selectedTab.classList.contains('active') : false;
+            console.log('isActive:', isActive);
+            console.log('currentFeature before:', currentFeature);
+
+            // 如果点击的是已选中的标签，则取消选中（收起面板）
+            if (isActive) {
+                selectedTab.classList.remove('active');
+                // 隐藏参数面板
+                document.querySelectorAll('.param-panel').forEach(panel => {
+                    panel.classList.remove('visible');
+                });
+                // 隐藏快捷参数栏
+                const quickParams = document.getElementById('quickParams');
+                if (quickParams) quickParams.classList.remove('visible');
+                currentFeature = null;
+                return;
+            }
+
+            console.log('Tab clicked, isActive:', isActive, 'feature:', feature);
+
+            // 否则正常选中
             const tabs = document.querySelectorAll('.feature-tab');
             tabs.forEach(tab => {
                 tab.classList.remove('active');
             });
 
-            const selectedTab = document.querySelector(`.feature-tab[data-feature="${feature}"]`);
             if (selectedTab && !selectedTab.classList.contains('disabled')) {
                 selectedTab.classList.add('active');
             }
@@ -441,6 +468,9 @@
                 const quickParams = document.getElementById('quickParams');
                 if (quickParams) quickParams.classList.add('visible');
             }
+
+            currentFeature = feature;
+            console.log('currentFeature after:', currentFeature);
 
             currentFeature = feature;
         }
@@ -519,8 +549,16 @@
 
             // 根据是否有消息决定调用哪个API
             if (message) {
-                // 用户输入了消息，直接使用自然语言描述
-                formData.append('message', message);
+                // 用户输入了消息
+                let fullMessage = message;
+
+                // 如果用户已通过UI选择了参数，将参数信息附加到消息中
+                if (currentFeature === 'orient' && selectedOrientation && selectedStrategy) {
+                    const strategyNames = { pad: '填充黑边', crop: '中心裁剪', pan_scroll: '平移运镜', smart_crop: '智能裁剪', stretch: '拉伸填充', mirror_scroll: '镜像滚动' };
+                    fullMessage = `${message} [用户已选择参数：目标方向=${selectedOrientationText}，转换策略=${strategyNames[selectedStrategy]}]`;
+                }
+
+                formData.append('message', fullMessage);
                 // 调用 Agent 接口进行 LLM 解析
                 callAgentAPI(formData);
                 return;
