@@ -360,6 +360,8 @@ def stretch_to_ratio(
     metadata = get_video_metadata(input_path)
     target_width = metadata.width
     target_height = int(metadata.width / target_ratio)
+    # libx264 requires dimensions divisible by 2, round to nearest even number
+    target_height = (target_height + 1) // 2 * 2
 
     cmd = [
         FFMPEG_PATH,
