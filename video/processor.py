@@ -397,10 +397,12 @@ def compress_video(
         是否成功
     """
     # 压缩级别参数映射
+    # CRF: 值越小质量越高文件越大 (18-28 是合理范围)
+    # preset: ultrafast 压缩效率低，slow 压缩效率高
     level_params = {
         "low": {"crf": 18, "preset": "medium", "description": "高质量"},
         "medium": {"crf": 23, "preset": "fast", "description": "中等质量"},
-        "high": {"crf": 28, "preset": "ultrafast", "description": "小体积"},
+        "high": {"crf": 28, "preset": "slow", "description": "小体积"},
     }
     params = level_params.get(compression_level, level_params["medium"])
 
