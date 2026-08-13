@@ -17,6 +17,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, AsyncGenerator
 from contextlib import asynccontextmanager
+from enum import Enum
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
