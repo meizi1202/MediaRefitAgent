@@ -673,12 +673,23 @@ def create_video_agent_graph():
         {
             "select_strategy": "select_strategy",
             "execute_transform": "execute_transform",
+            "execute_compress": "execute_compress",
             "waiting_for_user": "handle_user_response",
         }
     )
 
-    # waiting_for_user 路径：直接结束，等待用户下次请求携带新输入
-    graph.add_edge("handle_user_response", END)
+    # handle_user_response 之后也需要检查下一步
+    graph.add_conditional_edges(
+        "handle_user_response",
+        should_proceed,
+        {
+            "select_strategy": "select_strategy",
+            "execute_transform": "execute_transform",
+            "execute_compress": "execute_compress",
+            "waiting_for_user": "handle_user_response",
+        }
+    )
+
     graph.add_edge("execute_transform", "confirm_complete")
     graph.add_edge("execute_compress", "confirm_complete")
     graph.add_edge("confirm_complete", END)
