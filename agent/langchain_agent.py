@@ -65,60 +65,180 @@ class SimpleResponse:
         self.content = content
 
 
-def parse_intent(user_input: str, llm: MinMaxLLM) -> dict:
-    """使用 LLM 解析用户意图，返回参数和响应消息"""
-    # 构建消息历史
-    system_prompt = """你是一个视频处理助手，有两个主要工具：
+def get_video_info(file_path: str) -> dict:
+    """获取视频信息"""
+    try:
+        from video.processor import get_video_metadata
+        metadata = get_video_metadata(file_path)
+        size_bytes = os.path.getsize(file_path)
+        return {
+            "success": True,
+            "width": metadata.width,
+            "height": metadata.height,
+            "duration": metadata.duration,
+            "fps": metadata.fps,
+            "codec": metadata.codec,
+            "bitrate": metadata.bitrate,
+            "size_mb": round(size_bytes / 1024 / 1024, 2),
+            "message": f"视频信息：分辨率 {metadata.width}x{metadata.height}，时长 {metadata.duration:.1f}秒，文件大小 {size_bytes/1024/1024:.2f}MB"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"获取视频信息失败：{str(e)}"
+        }
 
-【工具1：视频横竖屏转换 transform】
-- 功能：转换视频的方向（横屏↔竖屏）和比例
-- 参数：目标方向(target_orientation)、转换策略(strategy)
-- 方向：portrait(竖屏)、landscape(横屏)
-- 策略：pad(填充黑边)、crop(中心裁剪)、smart_crop(智能裁剪)、stretch(拉伸填充)、mirror_scroll(镜像滚动)、pan_scroll(平移运镜)
 
-【工具2：视频压缩 compress】
-- 功能：压缩视频文件大小
-- 参数：compression_level
-- 级别：low(低压缩高质量)、medium(中压缩平衡)、high(高压缩小体积)
+def trim_video_file(file_path: str, output_dir: str, start_time: float, end_time: float) -> dict:
+    """修剪视频"""
+    try:
+        from video.processor import trim_video
+        import os
+        filename = os.path.basename(file_path)
+        output_path = os.path.join(output_dir, f"trimmed_{filename}")
+        trim_video(file_path, output_path, start_time, end_time)
+        output_size = os.path.getsize(output_path)
+        return {
+            "success": True,
+            "output_path": output_path,
+            "original_duration": end_time - start_time,
+            "trimmed_duration": end_time - start_time,
+            "start_time": start_time,
+            "end_time": end_time,
+            "output_size_mb": round(output_size / 1024 / 1024, 2),
+            "message": f"修剪完成！从 {start_time}秒 到 {end_time}秒，输出文件 {output_size/1024/1024:.2f}MB"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"修剪视频失败：{str(e)}"
+        }
 
-分析用户意图步骤：
 
-第一步：识别工具名称
-- 如果用户说"转换"、"转成"、"转竖屏"、"转横屏"、"横竖屏" -> target_feature="convert"
-- 如果用户说"压缩"、"压一下"、"变小"、"文件太大" -> target_feature="compress"
-- 如果无法判断 -> target_feature=null
+def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None) -> dict:
+    """使用 LLM 解析用户意图，两级结构：先识别工具，再解析参数"""
 
-第二步：根据工具识别对应参数
-- transform需要：orientation_explicit、strategy_explicit
-- compress需要：compression_explicit
+    # ===== 第一步：识别工具 =====
+    tool_prompt = """用户输入：{user_input}
 
-第三步：生成回复
-- 如果target_feature=null："抱歉，我没有理解您的需求。您是想转换视频方向还是压缩视频？"
-- 如果target_feature=convert但参数不全："好的，您想转换视频方向。请问目标方向是竖屏还是横屏？使用什么转换策略？"
-- 如果target_feature=compress但参数不全："好的，您想压缩视频。请问要什么压缩级别？低压缩保留较高质量，中压缩质量和体积平衡，高压缩体积最小。"
-- 如果所有参数完整：
-  - convert："好的，我把视频转换为{target_orientation}，使用{strategy}策略。"
-  - compress："好的，我用{compression_level}级别压缩视频。"
+请识别用户想要使用的工具：
+- 如果用户说"转换"、"转成"、"转竖屏"、"转横屏"、"横竖屏" -> 返回 "convert"
+- 如果用户说"压缩"、"压一下"、"变小"、"文件太大" -> 返回 "compress"
+- 如果用户说"视频信息"、"查看视频"、"这个视频多大"、"时长" -> 返回 "info"
+- 如果用户说"修剪"、"裁剪"、"截取"、"剪掉"、"切割" -> 返回 "trim"
+- 如果无法判断 -> 返回 "null"
 
-UI选择参数优先：如果用户输入中包含"[用户已选择参数：...]"格式，优先解析其中的参数
+只返回一个词：convert / compress / info / trim / null""".format(user_input=user_input)
 
-JSON格式（必须严格遵守）：
-{"target_feature": "transform/compress/null", "target_orientation": "portrait/landscape/null", "strategy": "pad/crop/smart_crop/stretch/mirror_scroll/pan_scroll/null", "compression_level": "low/medium/high/null", "orientation_explicit": true/false, "strategy_explicit": true/false, "compression_explicit": true/false, "response": "你的回复", "all_params_provided": true/false}"""
+    tool_messages = [{"role": "user", "content": tool_prompt}]
+    tool_result = llm._generate(tool_messages)
+    target_feature = tool_result.content.strip().lower() if hasattr(tool_result, 'content') else "null"
+
+    # ===== 第二步：根据工具使用专用提示词解析参数 =====
+    video_info_text = f"\n\n当前视频信息：{video_info['message']}" if video_info and video_info.get("success") else ""
+
+    if target_feature == "convert":
+        json_example = '{{"orientation_explicit": true/false, "strategy_explicit": true/false, "ratio_explicit": true/false, "target_orientation": "portrait/landscape/null", "target_ratio": "9:16/4:5/1:1/16:9/21:9/4:3/null", "strategy": "pad/crop/smart_crop/stretch/mirror_scroll/pan_scroll/null", "response": "助手回复"}}'
+        param_prompt = f"""用户想要转换视频方向。
+
+{video_info_text}
+
+用户输入：{user_input}
+
+请解析参数，JSON格式：
+{json_example}
+
+方向：portrait=竖屏，landscape=横屏
+比例：
+- 竖屏比例：9:16（短视频标准）、4:5（Instagram）、1:1（正方形）、2:3（照片）
+- 横屏比例：16:9（标准）、21:9（电影）、4:3（电视）、3:2（照片）
+策略：pad=填充黑边（保持所有内容完整），crop=中心裁剪（可能丢失边缘内容），smart_crop=智能裁剪（AI保留主体），stretch=拉伸填充（会变形），mirror_scroll=镜像滚动，pan_scroll=平移运镜
+
+如果参数完整，response示例："好的，我把视频转换为竖屏 9:16，使用填充黑边策略。"
+如果参数不完整，response示例格式：
+1. 先说明已提取到的参数（如已识别到目标方向或比例）
+2. 再说明缺少哪些参数及可选值
+示例："已识别到您想转换为竖屏（portrait）。还需要选择比例：9:16（短视频标准）、4:5（Instagram）、1:1（正方形）。请问选择哪个比例？" """
+
+    elif target_feature == "compress":
+        json_example = '{{"compression_explicit": true/false, "compression_level": "low/medium/high/null", "response": "助手回复"}}'
+        param_prompt = f"""用户想要压缩视频。
+
+{video_info_text}
+
+用户输入：{user_input}
+
+请解析参数，JSON格式：
+{json_example}
+
+级别：low=低压缩（高质量，文件较大），medium=中压缩（质量和体积平衡），high=高压缩（小体积，质量较低）
+
+如果参数完整，response示例："好的，我用中压缩级别压缩视频。"
+如果参数不完整，response示例格式：
+1. 先说明已提取到的参数（如有）
+2. 再说明缺少哪些参数及可选值
+示例："请问要什么压缩级别？低压缩保留较高质量但文件较大，中压缩质量和体积平衡，高压缩体积最小但质量较低。请选择级别。" """
+
+    elif target_feature == "info":
+        param_prompt = f"""用户想要获取视频信息。
+
+{video_info_text}
+
+用户输入：{user_input}
+
+请解析参数，JSON格式：
+{{"response": "助手回复"}}
+
+response示例："好的，我来查看视频信息。" """
+
+    elif target_feature == "trim":
+        json_example = '{{"start_time_explicit": true/false, "end_time_explicit": true/false, "start_time": "数字或时间格式/null", "end_time": "数字或时间格式/null", "response": "助手回复"}}'
+        param_prompt = f"""用户想要修剪视频。
+
+{video_info_text}
+
+用户输入：{user_input}
+
+请解析参数，JSON格式：
+{json_example}
+
+时间格式：支持 "30" (秒) 或 "0:30" (分:秒) 或 "1:30:00" (时:分:秒)
+
+如果参数完整，response示例："好的，我从第10秒修剪到第20秒。"
+如果参数不完整，response示例格式：
+1. 先说明已提取到的时间参数（如有）
+2. 再说明缺少哪些参数
+示例："已识别到您想从第10秒开始修剪。还需要指定结束时间（可以是秒数如30，或时间格式如0:30表示30秒）。请问结束时间是？" """
+
+    else:
+        return {
+            "target_feature": None,
+            "target_orientation": None,
+            "strategy": None,
+            "compression_level": None,
+            "start_time": None,
+            "end_time": None,
+            "orientation_explicit": False,
+            "strategy_explicit": False,
+            "compression_explicit": False,
+            "start_time_explicit": False,
+            "end_time_explicit": False,
+            "response": "抱歉，我没有理解您的需求。您是想转换视频方向、压缩视频、修剪视频还是获取视频信息？",
+            "all_params_provided": False
+        }
 
     try:
-        # 直接使用字典格式的消息
-        chat_messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_input}
-        ]
+        param_messages = [{"role": "user", "content": param_prompt}]
+        param_result = llm._generate(param_messages)
+        param_content = param_result.content if hasattr(param_result, 'content') else ""
 
-        result = llm._generate(chat_messages)
-        content = result.content if hasattr(result, 'content') else str(result)
+        # 调试日志
+        print(f"[DEBUG parse_intent] param_content:\n{param_content[:1000]}")
 
         # 提取 JSON
         json_str = None
         in_json = False
-        for line in content.split('\n'):
+        for line in param_content.split('\n'):
             line = line.strip()
             if '{' in line and not in_json:
                 start = line.index('{')
@@ -130,53 +250,65 @@ JSON格式（必须严格遵守）：
                 break
 
         if json_str:
-            parsed = json.loads(json_str)
-            target_feature = parsed.get("target_feature", "convert")
-            compression_level = parsed.get("compression_level")
-            compression_explicit = parsed.get("compression_explicit", False)
+            try:
+                parsed = json.loads(json_str)
+            except json.JSONDecodeError:
+                # 容错：尝试将单引号替换为双引号
+                try:
+                    # 先尝试把单引号替换为双引号（但要避免已存在的转义问题）
+                    fixed_json = json_str.replace("'", '"')
+                    parsed = json.loads(fixed_json)
+                except json.JSONDecodeError:
+                    # 还是失败，返回空字典
+                    parsed = {}
+        else:
+            parsed = {}
 
-            # 判断all_params_provided
-            if target_feature == "compress":
-                all_params_provided = compression_explicit and bool(compression_level)
-            elif target_feature == "convert":
-                all_params_provided = parsed.get("orientation_explicit", False) and parsed.get("strategy_explicit", False)
-            else:
-                all_params_provided = False
+        # 判断 all_params_provided
+        if target_feature == "compress":
+            all_params_provided = parsed.get("compression_explicit", False) and bool(parsed.get("compression_level"))
+        elif target_feature == "convert":
+            # 转换需要方向、策略；比例可选
+            all_params_provided = parsed.get("orientation_explicit", False) and parsed.get("strategy_explicit", False)
+        elif target_feature == "info":
+            all_params_provided = True
+        elif target_feature == "trim":
+            all_params_provided = parsed.get("start_time_explicit", False) and parsed.get("end_time_explicit", False)
+        else:
+            all_params_provided = False
 
-            return {
-                "target_feature": target_feature,
-                "target_orientation": parsed.get("target_orientation"),
-                "strategy": parsed.get("strategy"),
-                "compression_level": compression_level,
-                "orientation_explicit": parsed.get("orientation_explicit", False),
-                "strategy_explicit": parsed.get("strategy_explicit", False),
-                "compression_explicit": compression_explicit,
-                "response": parsed.get("response", ""),
-                "all_params_provided": all_params_provided
-            }
-
-        # JSON 解析失败，返回原始内容作为响应
         return {
-            "target_feature": None,
-            "target_orientation": None,
-            "strategy": None,
-            "compression_level": None,
-            "orientation_explicit": False,
-            "strategy_explicit": False,
-            "compression_explicit": False,
-            "response": content if content else "无法解析响应",
-            "all_params_provided": False
+            "target_feature": target_feature,
+            "target_orientation": parsed.get("target_orientation"),
+            "strategy": parsed.get("strategy"),
+            "compression_level": parsed.get("compression_level"),
+            "start_time": parsed.get("start_time"),
+            "end_time": parsed.get("end_time"),
+            "orientation_explicit": parsed.get("orientation_explicit", False),
+            "strategy_explicit": parsed.get("strategy_explicit", False),
+            "compression_explicit": parsed.get("compression_explicit", False),
+            "start_time_explicit": parsed.get("start_time_explicit", False),
+            "end_time_explicit": parsed.get("end_time_explicit", False),
+            "response": parsed.get("response", ""),
+            "all_params_provided": all_params_provided
         }
 
     except Exception as e:
+        import traceback
+        print(f"[DEBUG parse_intent] Exception: {e}")
+        print(f"[DEBUG parse_intent] Traceback:\n{traceback.format_exc()}")
         return {
-            "target_feature": None,
+            "target_feature": target_feature,
             "target_orientation": None,
             "strategy": None,
             "compression_level": None,
+            "start_time": None,
+            "end_time": None,
             "orientation_explicit": False,
             "strategy_explicit": False,
             "compression_explicit": False,
+            "start_time_explicit": False,
+            "end_time_explicit": False,
             "response": f"解析出错：{str(e)}",
             "all_params_provided": False
         }

@@ -88,6 +88,8 @@
         .param-option { padding: 6px 12px; background: #2a2a2a; border: 1px solid #333; border-radius: 6px; color: #888; font-size: 12px; cursor: pointer; transition: all 0.2s; }
         .param-option:hover { border-color: #4CAF50; color: #fff; }
         .param-option.active { background: #4CAF50; border-color: #4CAF50; color: #fff; }
+        .param-input { width: 100%; padding: 6px 12px; background: #2a2a2a; border: 1px solid #333; border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box; }
+        .param-input:focus { outline: none; border-color: #4CAF50; }
 
         /* 输入区 */
         .input-area { padding: 16px 20px; background: #1a1a1a; border-top: 1px solid #2a2a2a; }
@@ -170,7 +172,7 @@
             <div class="feature-bar">
                 <button class="feature-tab" data-feature="orient" onclick="selectFeature('orient', event)">横竖屏转换</button>
                 <button class="feature-tab" data-feature="compress" onclick="selectFeature('compress', event)">视频压缩</button>
-                <button class="feature-tab disabled" data-feature="cut">视频裁剪</button>
+                <button class="feature-tab" data-feature="trim" onclick="selectFeature('trim', event)">视频修剪</button>
                 <button class="feature-tab disabled" data-feature="format">视频格式转换</button>
                 <button class="feature-tab" data-feature="info" onclick="selectFeature('info', event)">视频信息获取</button>
             </div>
@@ -212,14 +214,17 @@
                 </div>
             </div>
 
-            <!-- 视频裁剪参数面板 (占位) -->
-            <div class="param-panel" id="paramPanel_cut">
+            <!-- 视频修剪参数面板 -->
+            <div class="param-panel" id="paramPanel_trim">
                 <div class="param-section">
-                    <div class="param-label">裁剪区域</div>
-                    <div class="param-options">
-                        <button class="param-option active">自定义</button>
-                        <button class="param-option">常用比例</button>
-                    </div>
+                    <div class="param-label">开始时间</div>
+                    <input type="text" id="trim_start_time" class="param-input"
+                           placeholder="格式: 00:00:00 或 秒数" value="">
+                </div>
+                <div class="param-section">
+                    <div class="param-label">结束时间</div>
+                    <input type="text" id="trim_end_time" class="param-input"
+                           placeholder="格式: 00:00:00 或 秒数" value="">
                 </div>
             </div>
 
@@ -578,10 +583,18 @@
             let fullMessage = message;
             // 检测消息是否关于压缩
             const isCompressionMessage = /压缩|压一下|变小|文件太大/.test(message);
-            if (message && currentFeature === 'compress' && selectedCompression) {
+            // 检查各标签是否被激活
+            const orientTabActive = document.querySelector('.feature-tab[data-feature="orient"]')?.classList.contains('active');
+            const compressTabActive = document.querySelector('.feature-tab[data-feature="compress"]')?.classList.contains('active');
+            const trimTabActive = document.querySelector('.feature-tab[data-feature="trim"]')?.classList.contains('active');
+
+            if (message && compressTabActive && currentFeature === 'compress' && selectedCompression) {
                 const levelNames = { low: '低', medium: '中', high: '高' };
                 fullMessage = `${message} [用户已选择参数：压缩级别=${levelNames[selectedCompression]}]`;
-            } else if (message && currentFeature === 'orient' && selectedOrientation && selectedStrategy && !isCompressionMessage) {
+            } else if (message && trimTabActive && currentFeature === 'trim') {
+                // 视频修剪不拼接其他功能的参数，fullMessage 保持原样
+                fullMessage = message;
+            } else if (message && orientTabActive && currentFeature === 'orient' && selectedOrientation && selectedStrategy && !isCompressionMessage) {
                 const strategyNames = { pad: '填充黑边', crop: '中心裁剪', pan_scroll: '平移运镜', smart_crop: '智能裁剪', stretch: '拉伸填充', mirror_scroll: '镜像滚动' };
                 fullMessage = `${message} [用户已选择参数：目标方向=${selectedOrientationText}，转换策略=${strategyNames[selectedStrategy]}]`;
             }
@@ -605,6 +618,8 @@
                 const isCompressionMessage = /压缩|压一下|变小|文件太大/.test(message);
                 // 检测消息是否关于视频信息
                 const isVideoInfoMessage = /视频信息|获取视频信息|查看视频信息/.test(message);
+                // 检测消息是否关于视频修剪
+                const isTrimMessage = /修剪|裁剪|trim|cut/.test(message);
 
                 if (currentFeature === 'compress' || isCompressionMessage) {
                     formData.append('message', fullMessage);
@@ -616,6 +631,17 @@
                     formData.append('message', fullMessage);
                     // 获取视频信息直接调用接口
                     callVideoInfoAPI(formData, fullMessage);
+                    return;
+                }
+                if (currentFeature === 'trim') {
+                    // 只有明确选择了 trim tab 才直接调用 trim API
+                    callTrimAPI(formData, fullMessage);
+                    return;
+                }
+                // 其他情况（包括自然语言"视频修剪"）交给 Agent 处理
+                if (isTrimMessage) {
+                    formData.append('message', fullMessage);
+                    callAgentAPI(formData, fullMessage);
                     return;
                 }
                 // 调用 Agent 接口进行 LLM 解析
@@ -634,6 +660,10 @@
             } else if (currentFeature === 'info') {
                 // 获取视频信息直接调用 info API
                 callVideoInfoAPI(formData, '获取视频信息');
+                return;
+            } else if (currentFeature === 'trim') {
+                // 视频修剪调用 trim API
+                callTrimAPI(formData, '修剪视频');
                 return;
             } else if (currentFeature === 'orient' && selectedOrientation && selectedStrategy) {
                 // 横竖屏转换且已选择方向和策略，直接调用 transform API
@@ -776,6 +806,98 @@
                         addMessage('assistant', msg);
                     } else {
                         addMessage('assistant', `获取视频信息失败: ${data.detail || '未知错误'}`);
+                    }
+                } catch (e) {
+                    hideAssistantTyping();
+                    addMessage('assistant', `请求失败: ${e.message}`);
+                }
+            }
+
+            async function callTrimAPI(formData, displayMessage) {
+                const fileToUpload = selectedFile || fileInput.files[0];
+                if (!fileToUpload) {
+                    alert('请上传视频文件');
+                    return;
+                }
+
+                // 解析时间格式
+                function parseTime(t) {
+                    if (!t) return null;
+                    t = t.trim();
+                    if (t.includes(':')) {
+                        const parts = t.split(':').map(Number);
+                        if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
+                        if (parts.length === 2) return parts[0]*60 + parts[1];
+                    }
+                    return parseFloat(t);
+                }
+
+                // 尝试从消息中解析时间
+                function extractTimesFromMessage(msg) {
+                    if (!msg) return { start: null, end: null };
+                    // 匹配 "00:00:10" 或 "10" 等时间格式
+                    const timePatterns = msg.match(/\d{1,2}:\d{2}(:\d{2})?|\d+(?:\.\d+)?/g);
+                    if (timePatterns && timePatterns.length >= 2) {
+                        return {
+                            start: parseTime(timePatterns[timePatterns.length - 2]),
+                            end: parseTime(timePatterns[timePatterns.length - 1])
+                        };
+                    }
+                    return { start: null, end: null };
+                }
+
+                const startTimeInput = document.getElementById('trim_start_time')?.value;
+                const endTimeInput = document.getElementById('trim_end_time')?.value;
+
+                let startTime = parseTime(startTimeInput);
+                let endTime = parseTime(endTimeInput);
+
+                // 如果输入框没填，尝试从消息中解析
+                if (!startTime || !endTime) {
+                    const fromMsg = extractTimesFromMessage(displayMessage);
+                    startTime = startTime || fromMsg.start;
+                    endTime = endTime || fromMsg.end;
+                }
+
+                if (!startTime || !endTime) {
+                    alert('请输入开始时间和结束时间');
+                    return;
+                }
+
+                if (isNaN(startTime) || isNaN(endTime)) {
+                    alert('时间格式错误');
+                    return;
+                }
+
+                if (startTime >= endTime) {
+                    alert('结束时间必须大于开始时间');
+                    return;
+                }
+
+                hideAssistantTyping();
+                showAssistantTyping();
+
+                const trimFormData = new FormData();
+                trimFormData.append('file', fileToUpload);
+                trimFormData.append('start_time', startTime);
+                trimFormData.append('end_time', endTime);
+
+                try {
+                    const resp = await fetch(`${API_BASE}/api/trim`, {
+                        method: 'POST',
+                        body: trimFormData
+                    });
+                    const data = await resp.json();
+                    hideAssistantTyping();
+
+                    if (data.success) {
+                        const origSize = (data.original_size || 0) / 1024 / 1024;
+                        const trimSize = (data.trimmed_size || 0) / 1024 / 1024;
+                        const msg = `视频修剪完成！\n\n原始时长: ${data.original_duration.toFixed(1)}秒\n原始大小: ${origSize.toFixed(2)}MB\n修剪后时长: ${data.trimmed_duration.toFixed(1)}秒\n修剪后大小: ${trimSize.toFixed(2)}MB\n开始时间: ${data.start_time}秒\n结束时间: ${data.end_time}秒`;
+                        addMessage('assistant', msg);
+                        updatePreviewForTrim(data);
+                    } else {
+                        addMessage('assistant', `修剪失败: ${data.detail || '未知错误'}`);
                     }
                 } catch (e) {
                     hideAssistantTyping();
@@ -986,6 +1108,35 @@
                         <div class="row"><span class="label">原始大小</span><span class="value">${(data.original_size / 1024 / 1024).toFixed(2)}MB</span></div>
                         <div class="row"><span class="label">压缩后</span><span class="value">${(data.compressed_size / 1024 / 1024).toFixed(2)}MB</span></div>
                         <div class="row"><span class="label">压缩比</span><span class="value">${ratio}%</span></div>
+                    </div>
+                    <div class="preview-actions">
+                        <button class="preview-btn download" onclick="downloadVideo()">⬇️ 下载</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updatePreviewForTrim(data) {
+            currentVideoData = data;
+            const content = document.getElementById('previewContent');
+            const downloadUrl = data.download_url || `${API_BASE}/api/download/${data.output_path.split('/').pop().split('\\').pop()}`;
+
+            const origSize = (data.original_size || 0) / 1024 / 1024;
+            const trimSize = (data.trimmed_size || 0) / 1024 / 1024;
+
+            content.innerHTML = `
+                <div class="video-container">
+                    <video class="video-player" controls playsinline>
+                        <source src="${downloadUrl}" type="video/mp4">
+                        您的浏览器不支持视频播放
+                    </video>
+                    <div class="video-info">
+                        <div class="row"><span class="label">原始时长</span><span class="value">${data.original_duration.toFixed(1)}秒</span></div>
+                        <div class="row"><span class="label">原始大小</span><span class="value">${origSize.toFixed(2)}MB</span></div>
+                        <div class="row"><span class="label">修剪后时长</span><span class="value">${data.trimmed_duration.toFixed(1)}秒</span></div>
+                        <div class="row"><span class="label">修剪后大小</span><span class="value">${trimSize.toFixed(2)}MB</span></div>
+                        <div class="row"><span class="label">开始时间</span><span class="value">${data.start_time}秒</span></div>
+                        <div class="row"><span class="label">结束时间</span><span class="value">${data.end_time}秒</span></div>
                     </div>
                     <div class="preview-actions">
                         <button class="preview-btn download" onclick="downloadVideo()">⬇️ 下载</button>

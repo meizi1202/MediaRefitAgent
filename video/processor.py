@@ -545,6 +545,60 @@ def pan_scroll(
     return True
 
 
+def trim_video(
+    input_path: str,
+    output_path: str,
+    start_time: float = 0.0,
+    end_time: Optional[float] = None,
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    裁剪视频到指定时间段
+
+    Args:
+        input_path: 输入路径
+        output_path: 输出路径
+        start_time: 开始时间（秒）
+        end_time: 结束时间（秒），None 表示到视频结尾
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    metadata = get_video_metadata(input_path)
+    duration = metadata.duration if metadata.duration > 0 else 0
+
+    # 验证时间参数
+    if start_time < 0:
+        start_time = 0
+    if end_time is None or end_time > duration:
+        end_time = duration
+    if end_time <= start_time:
+        raise ValueError("end_time must be greater than start_time")
+
+    # FFmpeg 裁剪命令：-ss 进行快速 seek，-t 指定持续时间
+    # 注意：使用 -c copy 可能在某些视频上有时间戳问题，改用重新编码
+    trim_duration = end_time - start_time
+    cmd = [
+        FFMPEG_PATH,
+        "-y",
+        "-ss", str(start_time),
+        "-i", input_path,
+        "-t", str(trim_duration),
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+    if not success:
+        raise Exception(f"Trim failed: {error}")
+    return True
+
+
 def transform_video(
     input_path: str,
     output_path: str,

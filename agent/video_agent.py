@@ -414,10 +414,12 @@ def select_strategy(state: VideoAgentState) -> VideoAgentState:
         state["current_step"] = "execute_transform"
         return state
 
-    # 缺少参数，设置为等待用户回答（如果已有pending_question则保留，如压缩时的"请选择压缩级别"）
-    if not state.get("pending_question"):
-        state["pending_question"] = "waiting_for_params"
-    state["current_step"] = "waiting_for_user"
+    # 缺少参数
+    # 如果刚从 handle_user_response 返回（current_step="waiting_for_user"），不设置 pending_question，让流程结束
+    if state.get("current_step") == "waiting_for_user":
+        return state
+    # 否则设置 pending_question
+    state["pending_question"] = "waiting_for_params"
     return state
 
 
@@ -550,7 +552,7 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
         try:
             from agent.langchain_agent import MinMaxLLM
             llm = MinMaxLLM(api_key=LLM_API_KEY)
-            parsed = llm_parse_intent(user_input, llm)
+            parsed = _llm_parse_intent(user_input, llm)
 
             target_feature = parsed.get("target_feature", state.get("current_feature"))
             compression_level = parsed.get("compression_level")
@@ -608,41 +610,47 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     else:
         # 无 LLM 时的回退
         parsed = IntentParser.parse(user_input)
-        if parsed["orientation_explicit"]:
-            state["target_orientation"] = parsed["orientation"]
+        if parsed.get("orientation_explicit"):
+            state["target_orientation"] = parsed.get("orientation")
             state["orientation_explicit"] = True
-        if parsed["strategy_explicit"]:
-            state["strategy"] = parsed["strategy"]
+        if parsed.get("strategy_explicit"):
+            state["strategy"] = parsed.get("strategy")
             state["strategy_explicit"] = True
-        if parsed["ratio_explicit"]:
-            state["target_ratio"] = parsed["ratio"]
+        if parsed.get("ratio_explicit"):
+            state["target_ratio"] = parsed.get("ratio")
             state["ratio_explicit"] = True
         state["all_params_provided"] = state.get("orientation_explicit") and state.get("strategy_explicit")
 
     # 只有在参数完整时才清除 pending_question
     if not state.get("all_params_provided"):
-        state["pending_question"] = state.get("pending_question", "waiting_for_params")
+        # 清除 pending_question，避免 should_proceed 再次路由到 waiting_for_user
+        state["pending_question"] = None
+        # 设置 current_step 为 waiting_for_user，让 should_proceed 返回 select_strategy 结束循环
+        state["current_step"] = "waiting_for_user"
+        return state
     else:
         state["pending_question"] = None
-        # 参数完整时直接设置执行步骤（不要经过 select_strategy 再次分配）
+        # 参数完整时直接设置执行步骤
         if state.get("current_feature") == "compress":
             state["current_step"] = "execute_compress"
         else:
             state["current_step"] = "execute_transform"
         return state
-    state["current_step"] = "select_strategy"
-
-    return state
 
 
 # ============ Route Functions ============
 
-def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "execute_compress", "waiting_for_user"]:
+def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "execute_compress", "waiting_for_user", "confirm_complete"]:
     """判断下一步"""
-    # 如果 current_step 已经被设为具体执行步骤，直接执行
+    # 如果 current_step 已经是 waiting_for_user，说明刚从 handle_user_response 返回，结束流程
     current_step = state.get("current_step")
     if current_step in ("execute_transform", "execute_compress"):
         return current_step
+
+    # 如果刚从 handle_user_response 返回，结束流程让用户继续对话
+    if current_step == "waiting_for_user":
+        # pending_question 会在用户下次发送消息时由 handle_user_response 处理
+        return "confirm_complete"
 
     # 有待回答问题时等待用户
     if state.get("pending_question"):
@@ -691,17 +699,28 @@ def create_video_agent_graph():
             "execute_transform": "execute_transform",
             "execute_compress": "execute_compress",
             "waiting_for_user": "handle_user_response",
+            "confirm_complete": "confirm_complete",
         }
     )
 
-    # handle_user_response 处理完后回到 select_strategy 决定下一步
-    graph.add_edge("handle_user_response", "select_strategy")
+    # handle_user_response 条件边
+    graph.add_conditional_edges(
+        "handle_user_response",
+        should_proceed,
+        {
+            "execute_transform": "execute_transform",
+            "execute_compress": "execute_compress",
+            "confirm_complete": "confirm_complete",
+        }
+    )
+
+    # handle_user_response 处理完后不需要边，should_proceed 会根据 current_step 决定下一步
 
     graph.add_edge("execute_transform", "confirm_complete")
     graph.add_edge("execute_compress", "confirm_complete")
     graph.add_edge("confirm_complete", END)
 
-    return graph.compile()
+    return graph.compile().with_config(recursion_limit=100)
 
 
 # ============ Agent Runner ============

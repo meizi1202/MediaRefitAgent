@@ -114,6 +114,21 @@ class VideoInfoResponseModel(BaseModel):
     message: str = ""
 
 
+class TrimResponseModel(BaseModel):
+    """视频裁剪响应模型"""
+    success: bool
+    input_path: str = ""
+    output_path: str = ""
+    download_url: Optional[str] = None
+    original_size: int = 0
+    trimmed_size: int = 0
+    original_duration: float = 0.0
+    trimmed_duration: float = 0.0
+    start_time: float = 0.0
+    end_time: float = 0.0
+    message: str = ""
+
+
 class HealthResponseModel(BaseModel):
     """健康检查响应"""
     status: str
@@ -378,6 +393,83 @@ async def api_video_info(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         # 清理临时文件
+        if os.path.exists(input_path):
+            os.unlink(input_path)
+
+
+@app.post("/api/trim", response_model=TrimResponseModel)
+async def api_trim(
+    file: UploadFile = File(...),
+    start_time: str = Form(...),
+    end_time: str = Form(...),
+):
+    """
+    视频裁剪接口
+
+    上传视频文件，裁剪指定时间段
+    """
+    # 解析时间参数（支持 "HH:MM:SS" 和纯秒数）
+    def parse_time(t: str) -> float:
+        if ":" in t:
+            parts = t.split(":")
+            if len(parts) == 3:
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+            elif len(parts) == 2:
+                return int(parts[0]) * 60 + float(parts[1])
+        return float(t)
+
+    start_sec = parse_time(start_time)
+    end_sec = parse_time(end_time)
+
+    # 保存上传文件到临时
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_input:
+        shutil.copyfileobj(file.file, tmp_input)
+        input_path = tmp_input.name
+
+    try:
+        from video.processor import get_video_metadata, trim_video
+
+        # 获取原始文件大小和时长
+        original_size = os.path.getsize(input_path)
+        metadata = get_video_metadata(input_path)
+        original_duration = metadata.duration
+
+        # 验证时间参数
+        if end_sec <= start_sec:
+            raise HTTPException(status_code=400, detail="结束时间必须大于开始时间")
+
+        # 生成输出路径
+        output_path = str(output_dir / f"trimmed_{Path(file.filename).stem}{suffix}")
+
+        # 调用 trim_video
+        trim_video(input_path, output_path, start_sec, end_sec)
+
+        # 获取裁剪后文件大小
+        trimmed_size = os.path.getsize(output_path)
+        trimmed_duration = end_sec - start_sec
+        output_filename = Path(output_path).name
+        download_url = f"http://172.18.98.97:8000/api/download/{output_filename}"
+
+        return TrimResponseModel(
+            success=True,
+            input_path=input_path,
+            output_path=output_path,
+            download_url=download_url,
+            original_size=original_size,
+            trimmed_size=trimmed_size,
+            original_duration=round(original_duration, 2),
+            trimmed_duration=round(trimmed_duration, 2),
+            start_time=round(start_sec, 2),
+            end_time=round(end_sec, 2),
+            message=f"裁剪完成！原始时长: {original_duration:.1f}s，裁剪后: {trimmed_duration:.1f}s",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
         if os.path.exists(input_path):
             os.unlink(input_path)
 
@@ -852,6 +944,59 @@ async def llm_agent_chat(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/llm/video-info")
+async def llm_video_info(file: UploadFile = File(...)):
+    """
+    获取视频信息接口 (LLM Agent 用)
+
+    上传视频文件，返回视频信息
+    """
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        from agent.langchain_agent import get_video_info
+        info = get_video_info(tmp_path)
+        return info
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+@app.post("/api/llm/trim")
+async def llm_trim(
+    file: UploadFile = File(...),
+    start_time: float = Form(...),
+    end_time: float = Form(...),
+):
+    """
+    视频修剪接口 (LLM Agent 用)
+
+    上传视频文件，修剪指定时间段
+    """
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        from agent.langchain_agent import trim_video_file
+        result = trim_video_file(tmp_path, str(output_dir), start_time, end_time)
+        if result.get("success"):
+            output_filename = Path(result["output_path"]).name
+            result["download_url"] = f"http://172.18.98.97:8000/api/download/{output_filename}"
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 # ============ Main ============
