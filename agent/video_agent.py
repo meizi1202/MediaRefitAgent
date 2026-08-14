@@ -273,15 +273,28 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         try:
             from agent.langchain_agent import MinMaxLLM, get_conversation_history
             llm = MinMaxLLM(api_key=LLM_API_KEY)
-            # 尝试从 LangChain Memory 获取历史
+            # 优先使用当前会话中已累积的消息（state["messages"]），因为它们已经被添加
+            # 只有当 state["messages"] 为空时，才尝试从 LangChain Memory 获取
             session_id = state.get("session_id")
-            if session_id:
+            state_messages = state.get("messages", [])
+            if session_id and len(state_messages) > 0:
+                # 当前会话已有消息，直接使用
+                history = []
+                for m in state_messages:
+                    if isinstance(m, dict):
+                        role = "user" if m.get("role") in ("user", "human") else "assistant"
+                        history.append({"role": role, "content": m.get("content", "")})
+                    else:
+                        # LangChain message object
+                        role = "user" if isinstance(m, HumanMessage) else "assistant"
+                        history.append({"role": role, "content": m.content})
+            elif session_id:
+                # 当前会话暂无消息，尝试从 LangChain Memory 获取
                 chat_history = get_conversation_history(session_id)
-                # 转换为 dict 格式供 parse_intent 使用
-                history = [{"role": "human" if isinstance(m, HumanMessage) else "assistant", "content": m.content}
+                history = [{"role": "user" if isinstance(m, HumanMessage) else "assistant", "content": m.content}
                           for m in chat_history.messages]
             else:
-                history = state.get("messages", [])
+                history = []
             parsed = _llm_parse_intent(user_input, llm, history=history)
 
             target_feature = parsed.get("target_feature", "convert")
@@ -619,20 +632,42 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     """处理用户对问题的回答 - 使用 LLM 解析"""
     user_input = state["user_input"]
 
+    # 重要检查：如果 current_step 不是 "waiting_for_user"（前一轮结束时设置的），
+    # 说明这不是用户回答问题的轮次，而是新一轮对话，不应该处理
+    if state.get("current_step") != "waiting_for_user":
+        # 跳过处理，让流程结束
+        # 清除 pending_question 以避免 should_proceed 再次返回 waiting_for_user
+        state["pending_question"] = None
+        state["current_step"] = "confirm_complete"
+        return state
+
     # 使用 LLM 解析用户的补充信息
     _llm_parse_intent = _get_llm_parse_intent()
     if _llm_parse_intent:
         try:
             from agent.langchain_agent import MinMaxLLM, get_conversation_history
             llm = MinMaxLLM(api_key=LLM_API_KEY)
-            # 尝试从 LangChain Memory 获取历史
+            # 优先使用当前会话中已累积的消息（state["messages"]）
+            # 只有当 state["messages"] 为空时，才尝试从 LangChain Memory 获取
             session_id = state.get("session_id")
-            if session_id:
+            state_messages = state.get("messages", [])
+            if session_id and len(state_messages) > 0:
+                # 当前会话已有消息，直接使用
+                history = []
+                for m in state_messages:
+                    if isinstance(m, dict):
+                        role = "user" if m.get("role") in ("user", "human") else "assistant"
+                        history.append({"role": role, "content": m.get("content", "")})
+                    else:
+                        # LangChain message object
+                        role = "user" if isinstance(m, HumanMessage) else "assistant"
+                        history.append({"role": role, "content": m.content})
+            elif session_id:
                 chat_history = get_conversation_history(session_id)
-                history = [{"role": "human" if isinstance(m, HumanMessage) else "assistant", "content": m.content}
+                history = [{"role": "user" if isinstance(m, HumanMessage) else "assistant", "content": m.content}
                           for m in chat_history.messages]
             else:
-                history = state.get("messages", [])
+                history = []
             parsed = _llm_parse_intent(user_input, llm, history=history)
 
             target_feature = parsed.get("target_feature", state.get("current_feature"))
@@ -734,20 +769,18 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
 
 def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "execute_compress", "execute_concat", "waiting_for_user", "confirm_complete"]:
     """判断下一步"""
-    # 如果 current_step 已经是 waiting_for_user，说明刚从 handle_user_response 返回，结束流程
     current_step = state.get("current_step")
+
+    # 如果正在执行中，直接继续执行
     if current_step in ("execute_transform", "execute_compress", "execute_concat"):
         return current_step
 
-    # 如果刚从 handle_user_response 返回，结束流程让用户继续对话
+    # 如果刚从 handle_user_response 返回（current_step 被设置为 confirm_complete），结束流程
+    if current_step == "confirm_complete":
+        return "confirm_complete"
+
+    # 如果 current_step 是 waiting_for_user（handle_user_response 还没执行或执行中），结束流程
     if current_step == "waiting_for_user":
-        # pending_question 会在用户下次发送消息时由 handle_user_response 处理
-        # 如果 pending_question 为 None 但 current_feature 已设置，说明参数已完整
-        if state.get("current_feature") == "concat" and state.get("all_params_provided"):
-            return "execute_concat"
-        if state.get("pending_question"):
-            return "confirm_complete"
-        # 流程结束，等待用户下次输入
         return "confirm_complete"
 
     # 有待回答问题时等待用户

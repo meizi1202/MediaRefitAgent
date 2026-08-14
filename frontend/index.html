@@ -1035,11 +1035,32 @@
 
             async function callAgentAPI(formData, displayMessage) {
                 try {
-                    const resp = await fetch(`${API_BASE}/api/agent/chat`, {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const data = await resp.json();
+                    // 判断是否继续已有会话（有 session_id 就调用 continue）
+                    const isContinue = !!currentSessionId;
+                    console.log('[DEBUG callAgentAPI] isContinue:', isContinue, 'currentSessionId:', currentSessionId, 'displayMessage:', displayMessage);
+
+                    let resp, data;
+                    if (isContinue) {
+                        // 继续会话，调用 /api/agent/continue (JSON格式)
+                        resp = await fetch(`${API_BASE}/api/agent/continue`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                message: displayMessage || message,
+                                session_id: currentSessionId
+                            })
+                        });
+                        data = await resp.json();
+                        console.log('[DEBUG callAgentAPI] Response:', data.message?.substring(0, 80));
+                    } else {
+                        // 新会话或带文件，调用 /api/agent/chat
+                        resp = await fetch(`${API_BASE}/api/agent/chat`, {
+                            method: 'POST',
+                            body: formData
+                        });
+                        data = await resp.json();
+                    }
+
                     hideAssistantTyping();
 
                     if (data.session_id) {
@@ -1050,7 +1071,6 @@
 
                         let session = sessions.find(s => s.session_id === currentSessionId);
                         if (!session) {
-                            // 使用用户的第一条消息作为会话标题
                             const firstUserMsg = userMsg.content.substring(0, 30) || '新会话';
                             session = {
                                 session_id: currentSessionId,

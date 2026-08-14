@@ -884,11 +884,18 @@ async def agent_chat(
                 success=False,
             )
 
-        # 获取助手的第一条消息（analyze_intent 的 LLM 响应）
+        # 获取助手的回复（跳过系统消息如"检测到视频是..."）
+        # 消息顺序：analyze_intent的回复在前，detect_video的"检测到视频"在后
+        # 所以应该从前往后找，跳过所有系统消息，取第一个真正的回复
         assistant_message = ""
+        skip_keywords = ["检测到视频", "正在处理", "已完成", "开始"]
         for msg in result.get("messages", []):
-            if msg.get("role") == "assistant":
-                assistant_message = msg.get("content", "")
+            if msg.get("role") == "assistant" and msg.get("content"):
+                content = msg.get("content", "")
+                # 跳过纯状态描述的中间消息
+                if any(kw in content for kw in skip_keywords):
+                    continue
+                assistant_message = content
                 break
 
         # 准备响应数据
@@ -944,12 +951,23 @@ async def agent_continue(request: AgentChatRequest):
                 success=False,
             )
 
-        # 获取助手的最后一条消息
+        # 获取助手的回复（跳过系统消息）
+        # 对于 continue，返回最后一条有效消息（最新的回复）
+        # 对于新对话，返回第一条有效消息
         assistant_message = ""
-        for msg in reversed(result.get("messages", [])):
-            if msg.get("role") == "assistant":
-                assistant_message = msg.get("content", "")
-                break
+        skip_keywords = ["检测到视频", "正在处理", "已完成", "开始"]
+        valid_messages = []
+        for msg in result.get("messages", []):
+            if msg.get("role") == "assistant" and msg.get("content"):
+                content = msg.get("content", "")
+                # 跳过纯状态描述的中间消息
+                if any(kw in content for kw in skip_keywords):
+                    continue
+                valid_messages.append(content)
+
+        # 返回最后一条有效消息（最新回复）
+        if valid_messages:
+            assistant_message = valid_messages[-1]
 
         return AgentChatResponse(
             session_id=request.session_id,

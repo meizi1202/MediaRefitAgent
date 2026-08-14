@@ -197,7 +197,7 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
     history_context = ""
     if history and len(history) > 0:
         history_context = "\n\n【对话历史】（请结合历史理解用户意图）\n"
-        for msg in history[-6:]:  # 最近6条
+        for msg in history[-20:]:  # 最近20条
             role = "用户" if msg["role"] == "user" else "助手"
             # 截断过长的内容
             content = msg["content"][:200] + "..." if len(msg.get("content", "")) > 200 else msg.get("content", "")
@@ -225,38 +225,63 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
     video_info_text = f"\n\n当前视频信息：{video_info['message']}" if video_info and video_info.get("success") else ""
 
     if target_feature == "convert":
-        json_example = '{{"orientation_explicit": true/false, "strategy_explicit": true/false, "ratio_explicit": true/false, "target_orientation": "portrait/landscape/null", "target_ratio": "9:16/4:5/1:1/16:9/21:9/4:3/null", "strategy": "pad/crop/smart_crop/stretch/mirror_scroll/pan_scroll/null", "response": "助手回复"}}'
-        param_prompt = f"""用户想要转换视频方向。
+        # JSON字段：xxx_explicit=true表示用户明确指定了对应参数，false/null表示未指定
+        json_example = '''{{"orientation_explicit": true/false, "strategy_explicit": true/false, "ratio_explicit": true/false, "target_orientation": "portrait/landscape/null", "target_ratio": "9:16/4:5/1:1/16:9/21:9/4:3/null", "strategy": "pad/crop/smart_crop/stretch/mirror_scroll/pan_scroll/null", "response": "助手回复"}}'''
+        param_prompt = f"""【任务】解析用户视频转换需求
 
+【重要】你必须返回JSON格式，不要返回Markdown或其他格式！
+
+【视频信息】
 {video_info_text}
 
-用户输入：{user_input}
+【对话历史】（重要！请结合历史理解用户意图）
+{history_context}
 
-请解析参数，JSON格式：
-{json_example}
+【当前输入】
+{user_input}
 
+---
+
+【参数说明】
 方向：portrait=竖屏，landscape=横屏
 比例：
-- 竖屏比例：9:16（短视频标准）、4:5（Instagram）、1:1（正方形）、2:3（照片）
-- 横屏比例：16:9（标准）、21:9（电影）、4:3（电视）、3:2（照片）
-策略：pad=填充黑边（保持所有内容完整），crop=中心裁剪（可能丢失边缘内容），smart_crop=智能裁剪（AI保留主体），stretch=拉伸填充（会变形），mirror_scroll=镜像滚动，pan_scroll=平移运镜
+- 竖屏：9:16（短视频标准）、4:5（Instagram）、1:1（正方形）
+- 横屏：16:9（标准）、21:9（电影）、4:3（电视）
+策略：
+- pad=填充黑边（保持所有内容完整，推荐）
+- crop=中心裁剪（可能丢失边缘内容）
+- smart_crop=智能裁剪（AI保留主体，需YOLO）
+- stretch=拉伸填充（会变形）
+- mirror_scroll=镜像滚动
+- pan_scroll=平移运镜
 
-如果参数完整，response示例："好的，我把视频转换为竖屏 9:16，使用填充黑边策略。"
-如果参数不完整，response示例格式：
-1. 先说明已提取到的参数（如已识别到目标方向或比例）
-2. 再说明缺少哪些参数及可选值
-示例："已识别到您想转换为竖屏（portrait）。还需要选择比例：9:16（短视频标准）、4:5（Instagram）、1:1（正方形）。请问选择哪个比例？" """
+【解析规则】
+1. 查看对话历史，如果助手之前问了某参数（如"选择比例"），用户现在回答了，则：
+   - explicit=true
+   - 字段值=用户回答的具体值（如"9:16"）
+2. 如果用户没有回答某问题，则：
+   - explicit=false
+   - 字段值=null
+
+【输出格式】
+必须返回以下JSON结构，不要返回其他内容：
+{json_example}
+
+【示例响应】
+{{"orientation_explicit": true, "strategy_explicit": false, "ratio_explicit": false, "target_orientation": "portrait", "target_ratio": null, "strategy": null, "response": "已识别到您想转换为竖屏。请问选择哪个比例？9:16/4:5/1:1"}}
+  示例"已识别到您想转换为竖屏。请问选择哪个比例？9:16/4:5/1:1" """
 
     elif target_feature == "compress":
         json_example = '{{"compression_explicit": true/false, "compression_level": "low/medium/high/null", "response": "助手回复"}}'
         param_prompt = f"""用户想要压缩视频。
 
 {video_info_text}
-
-用户输入：{user_input}
+{history_context}
 
 请解析参数，JSON格式：
 {json_example}
+
+【重要】用户的输入可能是在回答上一轮的问题，结合历史上下文理解。
 
 级别：low=低压缩（高质量，文件较大），medium=中压缩（质量和体积平衡），high=高压缩（小体积，质量较低）
 
@@ -270,6 +295,7 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
         param_prompt = f"""用户想要获取视频信息。
 
 {video_info_text}
+{history_context}
 
 用户输入：{user_input}
 
@@ -283,6 +309,9 @@ response示例："好的，我来查看视频信息。" """
         param_prompt = f"""用户想要修剪视频。
 
 {video_info_text}
+{history_context}
+
+【重要】用户的输入可能是在回答上一轮的问题，结合历史上下文理解。
 
 用户输入：{user_input}
 
@@ -302,6 +331,9 @@ response示例："好的，我来查看视频信息。" """
         param_prompt = f"""用户想要拼接多个视频。
 
 {video_info_text}
+{history_context}
+
+【重要】用户的输入可能是在回答上一轮的问题，结合历史上下文理解。
 
 用户输入：{user_input}
 
@@ -342,33 +374,64 @@ response示例："好的，我来查看视频信息。" """
         print(f"[DEBUG parse_intent] param_content:\n{param_content[:1000]}")
 
         # 提取 JSON
-        json_str = None
-        in_json = False
-        for line in param_content.split('\n'):
-            line = line.strip()
-            if '{' in line and not in_json:
-                start = line.index('{')
-                json_str = line[start:]
-                in_json = True
-            elif in_json:
-                json_str += line
-            if in_json and '}' in line:
-                break
+        import re
+        parsed = {}
+        llm_response = ""
 
-        if json_str:
+        # 方法1：正则提取 JSON 对象
+        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', param_content, re.DOTALL)
+        if json_match:
+            json_str = json_match.group()
             try:
                 parsed = json.loads(json_str)
             except json.JSONDecodeError:
                 # 容错：尝试将单引号替换为双引号
                 try:
-                    # 先尝试把单引号替换为双引号（但要避免已存在的转义问题）
                     fixed_json = json_str.replace("'", '"')
                     parsed = json.loads(fixed_json)
                 except json.JSONDecodeError:
-                    # 还是失败，返回空字典
                     parsed = {}
-        else:
-            parsed = {}
+
+        # 方法2：如果 JSON 解析失败或字段为空，尝试从文本中提取
+        if not parsed.get("response"):
+            # 尝试从文本中提取有用信息作为 response
+            lines = param_content.strip().split('\n')
+            for line in reversed(lines):
+                line = line.strip()
+                # 跳过空行、JSON标记行
+                if not line or line.startswith('{') or line.startswith('}') or line.startswith('【'):
+                    continue
+                # 跳过纯JSON键名行
+                if any(k in line for k in ['"orientation_explicit"', '"strategy_explicit"', '"ratio_explicit"',
+                                            '"target_orientation"', '"target_ratio"', '"strategy"', '"compression',
+                                            '"response"']):
+                    continue
+                # 取第一行有内容的作为响应
+                if line:
+                    llm_response = line.strip('",。：:「」''"" ')
+                    break
+
+        # 如果 JSON 解析失败，根据文本内容推断参数
+        if parsed and parsed.get("response"):
+            llm_response = parsed.get("response", "")
+
+        # 从 response 中尝试推断关键参数（当 JSON 解析失败时）
+        if not parsed.get("orientation_explicit") and not parsed.get("target_orientation"):
+            text_lower = param_content.lower()
+            if "竖屏" in param_content or "portrait" in text_lower:
+                parsed["target_orientation"] = "portrait"
+                parsed["orientation_explicit"] = True
+            elif "横屏" in param_content or "landscape" in text_lower:
+                parsed["target_orientation"] = "landscape"
+                parsed["orientation_explicit"] = True
+
+        if not parsed.get("ratio_explicit") and not parsed.get("target_ratio"):
+            if "9:16" in param_content:
+                parsed["target_ratio"] = "9:16"
+                parsed["ratio_explicit"] = True
+            elif "16:9" in param_content:
+                parsed["target_ratio"] = "16:9"
+                parsed["ratio_explicit"] = True
 
         # 判断 all_params_provided
         if target_feature == "compress":
@@ -390,6 +453,7 @@ response示例："好的，我来查看视频信息。" """
         return {
             "target_feature": target_feature,
             "target_orientation": parsed.get("target_orientation"),
+            "target_ratio": parsed.get("target_ratio"),
             "strategy": parsed.get("strategy"),
             "compression_level": parsed.get("compression_level"),
             "start_time": parsed.get("start_time"),
@@ -399,6 +463,7 @@ response示例："好的，我来查看视频信息。" """
             "file_count": parsed.get("file_count", 0),
             "orientation_explicit": parsed.get("orientation_explicit", False),
             "strategy_explicit": parsed.get("strategy_explicit", False),
+            "ratio_explicit": parsed.get("ratio_explicit", False),
             "compression_explicit": parsed.get("compression_explicit", False),
             "start_time_explicit": parsed.get("start_time_explicit", False),
             "end_time_explicit": parsed.get("end_time_explicit", False),
