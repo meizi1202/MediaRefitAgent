@@ -188,7 +188,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -835,13 +835,15 @@ class AgentStatusResponse(BaseModel):
 async def agent_chat(
     message: str = Form(...),
     session_id: Optional[str] = Form(None),
-    file: UploadFile = File(...),
+    files: Optional[list[UploadFile]] = File(None),
+    file: Optional[UploadFile] = File(None),
     api_key: Optional[str] = Form(None),
 ):
     """
     Agent 聊天接口（支持多轮对话）
 
     上传视频文件并用自然语言描述需求，Agent 会自动处理
+    支持单个或多个视频文件上传
     """
     if not LANGGRAPH_AVAILABLE:
         raise HTTPException(status_code=500, detail="LangGraph not available, install: pip install langgraph")
@@ -850,11 +852,18 @@ async def agent_chat(
     if api_key:
         os.environ["MINIMAX_API_KEY"] = api_key
 
-    # 保存上传的文件
-    suffix = Path(file.filename).suffix if file.filename else ".mp4"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = tmp.name
+    # 处理多文件或单文件
+    uploaded_files = files if files else ([file] if file else [])
+    if not uploaded_files:
+        raise HTTPException(status_code=400, detail="请上传视频文件")
+
+    # 保存所有上传的文件
+    all_temp_paths = []
+    for f in uploaded_files:
+        suffix = Path(f.filename).suffix if f.filename else ".mp4"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            shutil.copyfileobj(f.file, tmp)
+            all_temp_paths.append(tmp.name)
 
     try:
         agent = get_video_agent()
@@ -862,8 +871,10 @@ async def agent_chat(
         # 执行 Agent
         result = agent.process_video(
             user_input=message,
-            temp_video_path=tmp_path,
+            temp_video_path=all_temp_paths[0],
             session_id=session_id,
+            # 传递多文件信息给 Agent
+            video_files=all_temp_paths if len(all_temp_paths) > 1 else None,
         )
 
         if result.get("error"):
@@ -901,8 +912,9 @@ async def agent_chat(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        for path in all_temp_paths:
+            if os.path.exists(path):
+                os.unlink(path)
 
 
 @app.post("/api/agent/continue", response_model=AgentChatResponse)

@@ -126,9 +126,10 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None) -> di
 - 如果用户说"压缩"、"压一下"、"变小"、"文件太大" -> 返回 "compress"
 - 如果用户说"视频信息"、"查看视频"、"这个视频多大"、"时长" -> 返回 "info"
 - 如果用户说"修剪"、"裁剪"、"截取"、"剪掉"、"切割" -> 返回 "trim"
+- 如果用户说"拼接"、"合并"、"连接"、"concat"、"merge" -> 返回 "concat"
 - 如果无法判断 -> 返回 "null"
 
-只返回一个词：convert / compress / info / trim / null""".format(user_input=user_input)
+只返回一个词：convert / compress / info / trim / concat / null""".format(user_input=user_input)
 
     tool_messages = [{"role": "user", "content": tool_prompt}]
     tool_result = llm._generate(tool_messages)
@@ -210,6 +211,25 @@ response示例："好的，我来查看视频信息。" """
 2. 再说明缺少哪些参数
 示例："已识别到您想从第10秒开始修剪。还需要指定结束时间（可以是秒数如30，或时间格式如0:30表示30秒）。请问结束时间是？" """
 
+    elif target_feature == "concat":
+        json_example = '{{"concat_explicit": true/false, "file_count": 数字, "keep_audio": true/false, "response": "助手回复"}}'
+        param_prompt = f"""用户想要拼接多个视频。
+
+{video_info_text}
+
+用户输入：{user_input}
+
+请解析参数，JSON格式：
+{json_example}
+
+注意：拼接至少需要2个视频文件。可以通过用户上传的文件来确定视频数量。
+
+如果参数完整（至少2个视频），response示例："好的，我将拼接这3个视频。"
+如果参数不完整，response示例格式：
+1. 说明已识别到的信息
+2. 询问还需要什么
+示例："已识别到您想拼接视频。请上传至少2个视频文件，我会按选择顺序拼接。" """
+
     else:
         return {
             "target_feature": None,
@@ -274,6 +294,10 @@ response示例："好的，我来查看视频信息。" """
             all_params_provided = True
         elif target_feature == "trim":
             all_params_provided = parsed.get("start_time_explicit", False) and parsed.get("end_time_explicit", False)
+        elif target_feature == "concat":
+            # 拼接需要至少2个视频（file_count >= 2），由后端根据实际上传文件数量判断
+            # LLM 只负责识别意图，file_count 由后端判断
+            all_params_provided = parsed.get("concat_explicit", False)
         else:
             all_params_provided = False
 
@@ -284,6 +308,9 @@ response示例："好的，我来查看视频信息。" """
             "compression_level": parsed.get("compression_level"),
             "start_time": parsed.get("start_time"),
             "end_time": parsed.get("end_time"),
+            "keep_audio": parsed.get("keep_audio", True),
+            "concat_explicit": parsed.get("concat_explicit", False),
+            "file_count": parsed.get("file_count", 0),
             "orientation_explicit": parsed.get("orientation_explicit", False),
             "strategy_explicit": parsed.get("strategy_explicit", False),
             "compression_explicit": parsed.get("compression_explicit", False),
@@ -304,6 +331,9 @@ response示例："好的，我来查看视频信息。" """
             "compression_level": None,
             "start_time": None,
             "end_time": None,
+            "keep_audio": True,
+            "concat_explicit": False,
+            "file_count": 0,
             "orientation_explicit": False,
             "strategy_explicit": False,
             "compression_explicit": False,

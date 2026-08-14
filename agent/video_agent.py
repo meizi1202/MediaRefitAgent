@@ -59,6 +59,7 @@ class VideoAgentState(TypedDict):
     # 视频信息
     video_path: Optional[str]
     temp_video_path: Optional[str]
+    video_files: Optional[list[str]]  # 多文件路径列表（用于拼接）
     original_orientation: Optional[str]
     # 转换参数
     target_orientation: Optional[str]
@@ -536,6 +537,60 @@ def execute_compress(state: VideoAgentState) -> VideoAgentState:
     return state
 
 
+def execute_concat(state: VideoAgentState) -> VideoAgentState:
+    """执行视频拼接"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 获取多文件列表
+    video_files = state.get("video_files", [video_path])
+    if len(video_files) < 2:
+        state["error"] = "拼接至少需要2个视频文件"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_files[0]).stem
+    suffix = Path(video_files[0]).suffix
+    output_path = str(output_dir / f"concat_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        from video.processor import concat_videos
+
+        keep_audio = state.get("keep_audio", True)
+
+        def progress_callback(progress: float):
+            pass
+
+        concat_videos(video_files, output_path, keep_audio=keep_audio, progress_callback=progress_callback)
+
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"拼接完成！\n\n输出文件: {output_path}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"拼接异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
 def confirm_complete(state: VideoAgentState) -> VideoAgentState:
     """确认完成"""
     state["pending_question"] = None
@@ -574,6 +629,17 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
                 state["compression_explicit"] = compression_explicit
                 state["all_params_provided"] = compression_explicit and bool(compression_level)
                 state["pending_question"] = None if state["all_params_provided"] else "请选择压缩级别"
+            elif target_feature == "concat":
+                state["current_feature"] = "concat"
+                # 如果上传了多个视频文件，参数就完整了
+                video_files = state.get("video_files")
+                if video_files and len(video_files) >= 2:
+                    state["all_params_provided"] = True
+                    state["pending_question"] = None
+                    state["current_step"] = "execute_concat"
+                else:
+                    state["all_params_provided"] = False
+                    state["pending_question"] = "请上传至少2个视频文件进行拼接"
             else:
                 # convert 或其他
                 state["current_feature"] = "convert"
@@ -640,17 +706,22 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
 
 # ============ Route Functions ============
 
-def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "execute_compress", "waiting_for_user", "confirm_complete"]:
+def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "execute_compress", "execute_concat", "waiting_for_user", "confirm_complete"]:
     """判断下一步"""
     # 如果 current_step 已经是 waiting_for_user，说明刚从 handle_user_response 返回，结束流程
     current_step = state.get("current_step")
-    if current_step in ("execute_transform", "execute_compress"):
+    if current_step in ("execute_transform", "execute_compress", "execute_concat"):
         return current_step
 
     # 如果刚从 handle_user_response 返回，结束流程让用户继续对话
     if current_step == "waiting_for_user":
         # pending_question 会在用户下次发送消息时由 handle_user_response 处理
-        return "confirm_complete"
+        # 如果 pending_question 为 None 但 current_feature 已设置，说明参数已完整
+        if state.get("current_feature") == "concat" and state.get("all_params_provided"):
+            return "execute_concat"
+        if state.get("pending_question"):
+            return "confirm_complete"
+        return "select_strategy"
 
     # 有待回答问题时等待用户
     if state.get("pending_question"):
@@ -659,6 +730,9 @@ def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execut
     # 压缩流程
     if state.get("current_feature") == "compress" and state.get("all_params_provided"):
         return "execute_compress"
+    # 拼接流程（参数由前端提供）
+    if state.get("current_feature") == "concat" and state.get("all_params_provided"):
+        return "execute_concat"
     # 所有参数都提供了才执行转换
     if state.get("all_params_provided"):
         return "execute_transform"
@@ -680,6 +754,7 @@ def create_video_agent_graph():
     graph.add_node("select_strategy", select_strategy)
     graph.add_node("execute_transform", execute_transform)
     graph.add_node("execute_compress", execute_compress)
+    graph.add_node("execute_concat", execute_concat)
     graph.add_node("confirm_complete", confirm_complete)
     graph.add_node("handle_user_response", handle_user_response)
 
@@ -698,6 +773,7 @@ def create_video_agent_graph():
             "select_strategy": "select_strategy",
             "execute_transform": "execute_transform",
             "execute_compress": "execute_compress",
+            "execute_concat": "execute_concat",
             "waiting_for_user": "handle_user_response",
             "confirm_complete": "confirm_complete",
         }
@@ -710,6 +786,7 @@ def create_video_agent_graph():
         {
             "execute_transform": "execute_transform",
             "execute_compress": "execute_compress",
+            "execute_concat": "execute_concat",
             "confirm_complete": "confirm_complete",
         }
     )
@@ -718,6 +795,7 @@ def create_video_agent_graph():
 
     graph.add_edge("execute_transform", "confirm_complete")
     graph.add_edge("execute_compress", "confirm_complete")
+    graph.add_edge("execute_concat", "confirm_complete")
     graph.add_edge("confirm_complete", END)
 
     return graph.compile().with_config(recursion_limit=100)
@@ -738,12 +816,14 @@ class VideoAgent:
         video_path: Optional[str] = None,
         temp_video_path: Optional[str] = None,
         session_id: Optional[str] = None,
+        video_files: Optional[list[str]] = None,
     ) -> VideoAgentState:
         """创建初始状态"""
         return VideoAgentState(
             user_input=user_input,
             video_path=video_path,
             temp_video_path=temp_video_path,
+            video_files=video_files,
             original_orientation=None,
             target_orientation=None,
             strategy="pad",
@@ -799,6 +879,7 @@ class VideoAgent:
         user_input: str,
         temp_video_path: str,
         session_id: Optional[str] = None,
+        video_files: Optional[list[str]] = None,
     ) -> VideoAgentState:
         """
         处理上传的视频（多轮）
@@ -807,6 +888,7 @@ class VideoAgent:
             user_input: 用户输入
             temp_video_path: 临时视频文件路径
             session_id: 会话 ID
+            video_files: 多文件路径列表（用于拼接）
 
         Returns:
             最终状态
@@ -823,12 +905,16 @@ class VideoAgent:
             state = self.sessions[session_id]
             state["user_input"] = user_input
             state["temp_video_path"] = temp_video_path
+            if video_files:
+                state["video_files"] = video_files
         else:
             state = self._create_initial_state(
                 user_input=user_input,
                 temp_video_path=temp_video_path,
                 session_id=session_id,
             )
+            if video_files:
+                state["video_files"] = video_files
 
         result = self.graph.invoke(state)
 

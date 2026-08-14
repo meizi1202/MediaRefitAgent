@@ -93,7 +93,7 @@
 
         /* 输入区 */
         .input-area { padding: 16px 20px; background: #1a1a1a; border-top: 1px solid #2a2a2a; }
-        .input-row { display: flex; gap: 12px; align-items: flex-end; }
+        .input-row { display: flex; gap: 12px; align-items: flex-end; position: relative; }
         .file-btn { padding: 10px 16px; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; color: #888; cursor: pointer; font-size: 14px; position: relative; }
         .file-btn:hover { border-color: #4CAF50; color: #4CAF50; }
         .file-btn input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
@@ -103,6 +103,19 @@
         .send-btn { padding: 10px 20px; background: #4CAF50; border: none; border-radius: 8px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
         .send-btn:hover { background: #45a049; }
         .send-btn:disabled { background: #333; color: #555; cursor: not-allowed; }
+
+        /* 文件列表 */
+        .file-list-container { position: absolute; bottom: 60px; left: 20px; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; padding: 12px; max-width: 400px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .file-list-header { font-size: 12px; color: #888; margin-bottom: 8px; }
+        .file-list { display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto; }
+        .file-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #333; border-radius: 4px; font-size: 12px; }
+        .file-item-name { flex: 1; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .file-item-btns { display: flex; gap: 4px; }
+        .file-item-btn { padding: 2px 6px; background: #444; border: none; border-radius: 3px; color: #fff; font-size: 10px; cursor: pointer; }
+        .file-item-btn:hover { background: #555; }
+        .file-item-btn:disabled { background: #333; color: #555; cursor: not-allowed; }
+        .file-item-remove { color: #f44336; margin-left: 4px; cursor: pointer; }
+        .file-item-remove:hover { color: #e57373; }
 
         /* 右侧预览区 */
         .preview { background: #1a1a1a; border-left: 1px solid #2a2a2a; display: flex; flex-direction: column; }
@@ -173,6 +186,7 @@
                 <button class="feature-tab" data-feature="orient" onclick="selectFeature('orient', event)">横竖屏转换</button>
                 <button class="feature-tab" data-feature="compress" onclick="selectFeature('compress', event)">视频压缩</button>
                 <button class="feature-tab" data-feature="trim" onclick="selectFeature('trim', event)">视频修剪</button>
+                <button class="feature-tab" data-feature="concat" onclick="selectFeature('concat', event)">视频拼接</button>
                 <button class="feature-tab disabled" data-feature="format">视频格式转换</button>
                 <button class="feature-tab" data-feature="info" onclick="selectFeature('info', event)">视频信息获取</button>
             </div>
@@ -256,9 +270,12 @@
             <div class="input-area">
                 <div class="input-row">
                     <div class="file-btn">
-                        <span class="selected-file" id="selectedFileName"></span>
                         📤 上传视频
-                        <input type="file" id="videoFile" accept="video/*">
+                        <input type="file" id="videoFile" accept="video/*" multiple onchange="handleFileSelect(this.files)">
+                    </div>
+                    <div id="fileListContainer" class="file-list-container" style="display: none;">
+                        <div class="file-list-header">已选文件（点击↑↓调整顺序）：</div>
+                        <div id="fileList" class="file-list"></div>
                     </div>
                     <textarea class="input-field" id="messageInput" placeholder="输入消息描述您的需求，或上传视频后发送..." rows="1"></textarea>
                     <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
@@ -291,6 +308,7 @@
         let selectedOrientationText = '竖屏 9:16';
         let selectedCompression = 'medium';
         let selectedFile = null;
+        let selectedFiles = [];  // 多文件列表，用于拼接
         let currentVideoData = null;
         let lastAssistantMsgId = null;
         let msgCounter = 0;
@@ -327,6 +345,59 @@
                 saveSessionsToStorage();
                 renderSessions();
             } catch (e) {}
+        }
+
+        // 处理文件选择（支持多文件）
+        function handleFileSelect(files) {
+            selectedFiles = Array.from(files);
+            renderFileList();
+        }
+
+        // 渲染文件列表
+        function renderFileList() {
+            const container = document.getElementById('fileListContainer');
+            const list = document.getElementById('fileList');
+
+            if (selectedFiles.length === 0) {
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'block';
+            list.innerHTML = selectedFiles.map((file, index) => `
+                <div class="file-item">
+                    <span class="file-item-name" title="${file.name}">${index + 1}. ${file.name}</span>
+                    <div class="file-item-btns">
+                        <button class="file-item-btn" onclick="moveFile(${index}, -1)" ${index === 0 ? 'disabled' : ''}>↑</button>
+                        <button class="file-item-btn" onclick="moveFile(${index}, 1)" ${index === selectedFiles.length - 1 ? 'disabled' : ''}>↓</button>
+                    </div>
+                    <span class="file-item-remove" onclick="removeFile(${index})">✕</span>
+                </div>
+            `).join('');
+        }
+
+        // 移动文件
+        function moveFile(index, direction) {
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= selectedFiles.length) return;
+            const temp = selectedFiles[index];
+            selectedFiles[index] = selectedFiles[newIndex];
+            selectedFiles[newIndex] = temp;
+            renderFileList();
+            // 同步到 fileInput
+            const dt = new DataTransfer();
+            selectedFiles.forEach(f => dt.items.add(f));
+            document.getElementById('videoFile').files = dt.files;
+        }
+
+        // 移除文件
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            renderFileList();
+            // 同步到 fileInput
+            const dt = new DataTransfer();
+            selectedFiles.forEach(f => dt.items.add(f));
+            document.getElementById('videoFile').files = dt.files;
         }
 
         function renderSessions() {
@@ -609,7 +680,12 @@
 
             const formData = new FormData();
             if (fileInput.files[0]) {
-                formData.append('file', fileInput.files[0]);
+                // 支持多文件上传
+                if (selectedFiles.length > 1) {
+                    selectedFiles.forEach(f => formData.append('files', f));
+                } else {
+                    formData.append('file', fileInput.files[0]);
+                }
             }
 
             // 根据是否有消息决定调用哪个API
@@ -620,6 +696,8 @@
                 const isVideoInfoMessage = /视频信息|获取视频信息|查看视频信息/.test(message);
                 // 检测消息是否关于视频修剪
                 const isTrimMessage = /修剪|裁剪|trim|cut/.test(message);
+                // 检测消息是否关于视频拼接
+                const isConcatMessage = /拼接|合并|连接|concat|merge/i.test(message);
 
                 if (currentFeature === 'compress' || isCompressionMessage) {
                     formData.append('message', fullMessage);
@@ -642,6 +720,18 @@
                 if (isTrimMessage) {
                     formData.append('message', fullMessage);
                     callAgentAPI(formData, fullMessage);
+                    return;
+                }
+                // 视频拼接路由
+                if (currentFeature === 'concat' || isConcatMessage) {
+                    // 有2个以上文件直接调用 concat API，否则提示选择文件
+                    const files = selectedFiles.length > 0 ? selectedFiles : Array.from(fileInput.files);
+                    if (files.length >= 2) {
+                        callConcatAPI(formData, fullMessage);
+                    } else {
+                        hideAssistantTyping();
+                        addMessage('assistant', '请至少选择2个视频文件进行拼接');
+                    }
                     return;
                 }
                 // 调用 Agent 接口进行 LLM 解析
@@ -905,6 +995,44 @@
                 }
             }
 
+            async function callConcatAPI(formData, displayMessage) {
+                const files = selectedFiles.length > 0 ? selectedFiles : Array.from(fileInput.files);
+                if (files.length < 2) {
+                    hideAssistantTyping();
+                    addMessage('assistant', '请至少选择2个视频文件进行拼接');
+                    return;
+                }
+
+                hideAssistantTyping();
+                showAssistantTyping();
+
+                const concatFormData = new FormData();
+                for (let i = 0; i < files.length; i++) {
+                    concatFormData.append('files', files[i]);
+                }
+
+                try {
+                    const resp = await fetch(`${API_BASE}/api/concat`, {
+                        method: 'POST',
+                        body: concatFormData
+                    });
+                    const data = await resp.json();
+                    hideAssistantTyping();
+
+                    if (data.success) {
+                        const outputSize = (data.output_size || 0) / 1024 / 1024;
+                        const msg = `视频拼接完成！\n\n参与拼接: ${data.input_count} 个视频\n原始总时长: ${data.total_duration.toFixed(1)}秒\n输出时长: ${data.output_duration.toFixed(1)}秒\n输出大小: ${outputSize.toFixed(2)}MB`;
+                        addMessage('assistant', msg);
+                        updatePreviewForConcat(data);
+                    } else {
+                        addMessage('assistant', `拼接失败: ${data.detail || '未知错误'}`);
+                    }
+                } catch (e) {
+                    hideAssistantTyping();
+                    addMessage('assistant', `请求失败: ${e.message}`);
+                }
+            }
+
             async function callAgentAPI(formData, displayMessage) {
                 try {
                     const resp = await fetch(`${API_BASE}/api/agent/chat`, {
@@ -1145,6 +1273,33 @@
             `;
         }
 
+        function updatePreviewForConcat(data) {
+            currentVideoData = data;
+            const content = document.getElementById('previewContent');
+            const downloadUrl = data.download_url || `${API_BASE}/api/download/${data.output_path.split('/').pop().split('\\').pop()}`;
+
+            const outputSize = (data.output_size || 0) / 1024 / 1024;
+
+            content.innerHTML = `
+                <div class="video-container">
+                    <video class="video-player" controls playsinline>
+                        <source src="${downloadUrl}" type="video/mp4">
+                        您的浏览器不支持视频播放
+                    </video>
+                    <div class="video-info">
+                        <div class="row"><span class="label">拼接视频数</span><span class="value">${data.input_count} 个</span></div>
+                        <div class="row"><span class="label">原始总时长</span><span class="value">${data.total_duration.toFixed(1)}秒</span></div>
+                        <div class="row"><span class="label">输出时长</span><span class="value">${data.output_duration.toFixed(1)}秒</span></div>
+                        <div class="row"><span class="label">输出大小</span><span class="value">${outputSize.toFixed(2)}MB</span></div>
+                        <div class="row"><span class="label">保留音轨</span><span class="value">${data.keep_audio ? '是' : '否'}</span></div>
+                    </div>
+                    <div class="preview-actions">
+                        <button class="preview-btn download" onclick="downloadVideo()">⬇️ 下载</button>
+                    </div>
+                </div>
+            `;
+        }
+
         function clearPreview() {
             currentVideoData = null;
             document.getElementById('previewContent').innerHTML = `
@@ -1269,15 +1424,6 @@
             assistantMsgId = null;
             clearPreview();
         }
-
-        // 文件选择显示文件名
-        document.getElementById('videoFile').addEventListener('change', function(e) {
-            if (e.target.files[0]) {
-                document.getElementById('selectedFileName').textContent = e.target.files[0].name;
-            } else {
-                document.getElementById('selectedFileName').textContent = '';
-            }
-        });
 
         // 回车发送
         document.getElementById('messageInput').addEventListener('keydown', (e) => {
