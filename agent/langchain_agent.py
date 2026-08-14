@@ -115,11 +115,22 @@ def trim_video_file(file_path: str, output_dir: str, start_time: float, end_time
         }
 
 
-def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None) -> dict:
+def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, history: list = None) -> dict:
     """使用 LLM 解析用户意图，两级结构：先识别工具，再解析参数"""
 
+    # 构建历史上下文
+    history_context = ""
+    if history and len(history) > 0:
+        history_context = "\n\n【对话历史】（请结合历史理解用户意图）\n"
+        for msg in history[-6:]:  # 最近6条
+            role = "用户" if msg["role"] == "user" else "助手"
+            # 截断过长的内容
+            content = msg["content"][:200] + "..." if len(msg.get("content", "")) > 200 else msg.get("content", "")
+            history_context += f"{role}：{content}\n"
+        history_context += "【当前输入】\n"
+
     # ===== 第一步：识别工具 =====
-    tool_prompt = """用户输入：{user_input}
+    tool_prompt = f"""{history_context}用户输入：{{user_input}}
 
 请识别用户想要使用的工具：
 - 如果用户说"转换"、"转成"、"转竖屏"、"转横屏"、"横竖屏" -> 返回 "convert"

@@ -264,7 +264,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         try:
             from agent.langchain_agent import MinMaxLLM
             llm = MinMaxLLM(api_key=LLM_API_KEY)
-            parsed = _llm_parse_intent(user_input, llm)
+            parsed = _llm_parse_intent(user_input, llm, history=state.get("messages", []))
 
             target_feature = parsed.get("target_feature", "convert")
             compression_level = parsed.get("compression_level")
@@ -607,7 +607,7 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
         try:
             from agent.langchain_agent import MinMaxLLM
             llm = MinMaxLLM(api_key=LLM_API_KEY)
-            parsed = _llm_parse_intent(user_input, llm)
+            parsed = _llm_parse_intent(user_input, llm, history=state.get("messages", []))
 
             target_feature = parsed.get("target_feature", state.get("current_feature"))
             compression_level = parsed.get("compression_level")
