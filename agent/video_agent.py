@@ -489,9 +489,16 @@ def execute_transform(state: VideoAgentState) -> VideoAgentState:
         state["current_step"] = "confirm_complete"
 
         if result.success:
+            # 转换英文值为中文
+            orientation_map = {"portrait": "竖屏", "landscape": "横屏", "square": "正方形"}
+            strategy_map = {"pad": "填充黑边", "crop": "中心裁剪", "smart_crop": "智能裁剪", "stretch": "拉伸填充", "mirror_scroll": "镜像滚动", "pan_scroll": "平移运镜"}
+            target_orientation_cn = orientation_map.get(result.target_orientation, result.target_orientation)
+            target_ratio = state.get("target_ratio", "未指定")
+            strategy_used_cn = strategy_map.get(result.strategy_used, result.strategy_used)
+
             msg = ConversationMessage(
                 role="assistant",
-                content=f"转换完成！\n\n输出文件: {result.output_path}\n原始方向: {result.original_orientation}\n目标方向: {result.target_orientation}\n使用策略: {result.strategy_used}",
+                content=f"转换完成！\n\n输出文件: {result.output_path}\n目标方向: {target_orientation_cn}\n目标比例: {target_ratio}\n使用策略: {strategy_used_cn}",
                 timestamp=datetime.now().isoformat(),
             )
             state["messages"].append(msg)
