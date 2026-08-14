@@ -22,6 +22,12 @@ try:
 except ImportError:
     LANGGRAPH_AVAILABLE = False
 
+# LangChain Memory imports
+try:
+    from langchain_core.messages import HumanMessage
+except ImportError:
+    HumanMessage = None
+
 from video.transformer import transform, TransformRequest, TransformResult
 from ml.orientation_detector import detect_orientation, OrientationResult
 
@@ -262,9 +268,18 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     _llm_parse_intent = _get_llm_parse_intent()
     if _llm_parse_intent:
         try:
-            from agent.langchain_agent import MinMaxLLM
+            from agent.langchain_agent import MinMaxLLM, get_conversation_history
             llm = MinMaxLLM(api_key=LLM_API_KEY)
-            parsed = _llm_parse_intent(user_input, llm, history=state.get("messages", []))
+            # 尝试从 LangChain Memory 获取历史
+            session_id = state.get("session_id")
+            if session_id:
+                chat_history = get_conversation_history(session_id)
+                # 转换为 dict 格式供 parse_intent 使用
+                history = [{"role": "human" if isinstance(m, HumanMessage) else "assistant", "content": m.content}
+                          for m in chat_history.messages]
+            else:
+                history = state.get("messages", [])
+            parsed = _llm_parse_intent(user_input, llm, history=history)
 
             target_feature = parsed.get("target_feature", "convert")
             compression_level = parsed.get("compression_level")
@@ -605,9 +620,17 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     _llm_parse_intent = _get_llm_parse_intent()
     if _llm_parse_intent:
         try:
-            from agent.langchain_agent import MinMaxLLM
+            from agent.langchain_agent import MinMaxLLM, get_conversation_history
             llm = MinMaxLLM(api_key=LLM_API_KEY)
-            parsed = _llm_parse_intent(user_input, llm, history=state.get("messages", []))
+            # 尝试从 LangChain Memory 获取历史
+            session_id = state.get("session_id")
+            if session_id:
+                chat_history = get_conversation_history(session_id)
+                history = [{"role": "human" if isinstance(m, HumanMessage) else "assistant", "content": m.content}
+                          for m in chat_history.messages]
+            else:
+                history = state.get("messages", [])
+            parsed = _llm_parse_intent(user_input, llm, history=history)
 
             target_feature = parsed.get("target_feature", state.get("current_feature"))
             compression_level = parsed.get("compression_level")
@@ -721,7 +744,8 @@ def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execut
             return "execute_concat"
         if state.get("pending_question"):
             return "confirm_complete"
-        return "select_strategy"
+        # 流程结束，等待用户下次输入
+        return "confirm_complete"
 
     # 有待回答问题时等待用户
     if state.get("pending_question"):
@@ -918,6 +942,10 @@ class VideoAgent:
 
         result = self.graph.invoke(state)
 
+        # 同步消息到 LangChain Memory
+        if session_id:
+            self._sync_messages_to_memory(session_id, result.get("messages", []))
+
         # 保存到 sessions
         if session_id:
             self.sessions[session_id] = result
@@ -950,6 +978,10 @@ class VideoAgent:
         state["user_input"] = user_input
 
         result = self.graph.invoke(state)
+
+        # 同步消息到 LangChain Memory
+        self._sync_messages_to_memory(session_id, result.get("messages", []))
+
         self.sessions[session_id] = result
         return result
 
@@ -967,6 +999,24 @@ class VideoAgent:
     def list_sessions(self) -> list[str]:
         """列出所有会话 ID"""
         return list(self.sessions.keys())
+
+    def _sync_messages_to_memory(self, session_id: str, messages: list) -> None:
+        """同步消息到 LangChain Memory"""
+        from agent.langchain_agent import get_conversation_history
+        try:
+            chat_history = get_conversation_history(session_id)
+            # 获取已存储的消息数量，避免重复添加
+            existing_count = len(chat_history.messages)
+            # 只添加新消息
+            for msg in messages[existing_count:]:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "user" or role == "human":
+                    chat_history.add_user_message(content)
+                elif role == "assistant" or role == "ai":
+                    chat_history.add_ai_message(content)
+        except Exception:
+            pass  # Memory 同步失败不影响主流程
 
 
 # ============ Convenience Functions ============
