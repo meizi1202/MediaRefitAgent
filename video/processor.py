@@ -599,6 +599,110 @@ def trim_video(
     return True
 
 
+def concat_videos(
+    input_paths: list[str],
+    output_path: str,
+    keep_audio: bool = True,
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    拼接多个视频为一个视频
+
+    自动检测视频参数：
+    - 如果所有视频编码、分辨率、帧率、像素格式完全一致，使用 concat demuxer（-c copy，无损快速）
+    - 否则使用 filter_complex（通用方案，强制转码）
+
+    Args:
+        input_paths: 输入文件路径列表（至少2个）
+        output_path: 输出文件路径
+        keep_audio: 是否保留音轨
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    if len(input_paths) < 2:
+        raise ValueError("Need at least 2 input files")
+
+    # 获取所有视频的参数
+    metas = [get_video_metadata(p) for p in input_paths]
+
+    # 检查是否所有视频参数一致（可使用快速 concat demuxer）
+    first = metas[0]
+    all_same = all(
+        m.codec == first.codec
+        and m.width == first.width
+        and m.height == first.height
+        and abs(m.fps - first.fps) < 0.01
+        for m in metas
+    )
+
+    if all_same:
+        # 使用 concat demuxer（流复制，无损快速）
+        # 需要先创建文件列表
+        list_file = output_path + ".txt"
+        with open(list_file, "w", encoding="utf-8") as f:
+            for p in input_paths:
+                # Windows 下使用正斜杠
+                f.write(f"file '{p.replace(chr(92), '/')}'\n")
+
+        cmd = [FFMPEG_PATH, "-y", "-f", "concat", "-safe", "0", "-i", list_file]
+        if keep_audio:
+            cmd.extend(["-c:v", "copy", "-c:a", "copy"])
+        else:
+            cmd.extend(["-c:v", "copy", "-an"])
+        cmd.append(output_path)
+
+        success, error = run_ffmpeg(cmd, progress_callback)
+        # 清理临时文件
+        if os.path.exists(list_file):
+            os.unlink(list_file)
+    else:
+        # 使用 filter_complex 方案：缩放 + 拼接
+        target_w = first.width
+        target_h = first.height
+
+        filter_complex = ""
+        concat_inputs = ""
+
+        for i, input_file in enumerate(input_paths):
+            # 缩放到目标分辨率，添加黑边保持宽高比
+            filter_complex += f"[{i}:v]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
+            filter_complex += f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2[v{i}];"
+
+            if keep_audio:
+                filter_complex += f"[{i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a{i}];"
+                concat_inputs += f"[v{i}][a{i}]"
+            else:
+                concat_inputs += f"[v{i}]"
+
+        # 添加 concat 滤镜
+        if keep_audio:
+            filter_complex += f"{concat_inputs}concat=n={len(input_paths)}:v=1:a=1[outv][outa]"
+        else:
+            filter_complex += f"{concat_inputs}concat=n={len(input_paths)}:v=1:a=0[outv]"
+
+        # 构建命令
+        cmd = [FFMPEG_PATH, "-y"]
+        for f in input_paths:
+            cmd.extend(["-i", f])
+        cmd.extend(["-filter_complex", filter_complex])
+
+        if keep_audio:
+            cmd.extend(["-map", "[outv]", "-map", "[outa]"])
+            cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+        else:
+            cmd.extend(["-map", "[outv]"])
+
+        cmd.extend(["-c:v", "libx264", "-preset", "medium", "-crf", "23", output_path])
+
+        success, error = run_ffmpeg(cmd, progress_callback)
+
+    if not success:
+        raise Exception(f"Concat failed: {error}")
+    return True
+
+
 def transform_video(
     input_path: str,
     output_path: str,

@@ -14,6 +14,7 @@ import tempfile
 import asyncio
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, AsyncGenerator
 from contextlib import asynccontextmanager
@@ -126,6 +127,20 @@ class TrimResponseModel(BaseModel):
     trimmed_duration: float = 0.0
     start_time: float = 0.0
     end_time: float = 0.0
+    message: str = ""
+
+
+class ConcatResponseModel(BaseModel):
+    """视频拼接响应模型"""
+    success: bool
+    input_paths: list[str] = []
+    output_path: str = ""
+    download_url: Optional[str] = None
+    input_count: int = 0
+    total_duration: float = 0.0
+    output_duration: float = 0.0
+    output_size: int = 0
+    keep_audio: bool = True
     message: str = ""
 
 
@@ -472,6 +487,71 @@ async def api_trim(
     finally:
         if os.path.exists(input_path):
             os.unlink(input_path)
+
+
+@app.post("/api/concat", response_model=ConcatResponseModel)
+async def api_concat(
+    files: list[UploadFile] = File(..., description="多个视频文件，至少2个"),
+    keep_audio: bool = Form(default=True, description="是否保留音轨"),
+):
+    """
+    视频拼接接口
+
+    上传多个视频文件，按顺序拼接为一个视频
+    """
+    if len(files) < 2:
+        raise HTTPException(status_code=400, detail="需要至少2个视频文件")
+
+    # 保存上传文件
+    input_paths = []
+    try:
+        for i, file in enumerate(files):
+            suffix = Path(file.filename).suffix if file.filename else ".mp4"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                shutil.copyfileobj(file.file, tmp)
+                input_paths.append(tmp.name)
+
+        # 计算总时长
+        from video.processor import get_video_metadata
+        total_duration = 0.0
+        for path in input_paths:
+            meta = get_video_metadata(path)
+            total_duration += meta.duration
+
+        # 生成输出路径
+        output_filename = f"concat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        output_path = str(output_dir / output_filename)
+
+        # 调用拼接
+        from video.processor import concat_videos
+        concat_videos(input_paths, output_path, keep_audio=keep_audio)
+
+        # 获取输出文件信息
+        output_size = os.path.getsize(output_path)
+        output_meta = get_video_metadata(output_path)
+        download_url = f"http://172.18.98.97:8000/api/download/{output_filename}"
+
+        return ConcatResponseModel(
+            success=True,
+            input_paths=input_paths,
+            output_path=output_path,
+            download_url=download_url,
+            input_count=len(input_paths),
+            total_duration=round(total_duration, 2),
+            output_duration=round(output_meta.duration, 2),
+            output_size=output_size,
+            keep_audio=keep_audio,
+            message=f"拼接完成！共 {len(input_paths)} 个视频，总时长 {total_duration:.1f}s，输出时长 {output_meta.duration:.1f}s",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        for path in input_paths:
+            if os.path.exists(path):
+                os.unlink(path)
 
 
 @app.post("/api/transform-path")
