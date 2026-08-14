@@ -15,6 +15,9 @@ from pathlib import Path
 import json
 import os
 
+# 会话目录
+SESSIONS_DIR = Path.home() / ".mediarefit" / "sessions"
+
 # LangGraph imports
 try:
     from langgraph.graph import StateGraph, END
@@ -932,23 +935,47 @@ class VideoAgent:
             if video_files:
                 state["video_files"] = video_files
         else:
+            # 创建会话目录并持久化视频
+            actual_session_id = session_id or datetime.now().strftime("%Y%m%d%H%M%S")
+            session_dir = SESSIONS_DIR / actual_session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+
+            # 复制主视频到会话目录
+            if temp_video_path and Path(temp_video_path).exists():
+                dest_path = session_dir / f"video{Path(temp_video_path).suffix}"
+                shutil.copy2(temp_video_path, dest_path)
+                temp_video_path = str(dest_path)
+
+            # 复制多个视频到会话目录（用于拼接）
+            if video_files:
+                persisted_files = []
+                for i, vf in enumerate(video_files):
+                    if Path(vf).exists():
+                        dest_path = session_dir / f"video_{i}{Path(vf).suffix}"
+                        shutil.copy2(vf, dest_path)
+                        persisted_files.append(str(dest_path))
+                video_files = persisted_files
+
             state = self._create_initial_state(
                 user_input=user_input,
                 temp_video_path=temp_video_path,
-                session_id=session_id,
+                session_id=actual_session_id,
             )
             if video_files:
                 state["video_files"] = video_files
 
         result = self.graph.invoke(state)
 
+        # 使用结果中的 session_id（可能由 _create_initial_state 生成）
+        actual_session_id = result.get("session_id")
+
         # 同步消息到 LangChain Memory
-        if session_id:
-            self._sync_messages_to_memory(session_id, result.get("messages", []))
+        if actual_session_id:
+            self._sync_messages_to_memory(actual_session_id, result.get("messages", []))
 
         # 保存到 sessions
-        if session_id:
-            self.sessions[session_id] = result
+        if actual_session_id:
+            self.sessions[actual_session_id] = result
 
         return result
 
