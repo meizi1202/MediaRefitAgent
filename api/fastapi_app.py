@@ -1119,6 +1119,276 @@ async def llm_trim(
             os.unlink(tmp_path)
 
 
+# ============ Condensation Endpoints (智能缩编) ============
+
+
+class CondenseRequest(BaseModel):
+    """缩编请求"""
+    strategy: str = Field(default="content_condense", description="缩编策略: smart_compress / content_condense / smart_crop")
+    target_duration: float = Field(default=60.0, description="目标时长（秒）")
+    target_ratio: float = Field(default=9/16, description="目标比例，默认 9:16 (竖屏)")
+    language: str = Field(default="zh", description="语音语言")
+
+
+class CondenseResponseModel(BaseModel):
+    """缩编响应模型"""
+    success: bool
+    input_path: str = ""
+    output_path: str = ""
+    download_url: Optional[str] = None
+    strategy: str = ""
+    duration_before: float = 0.0
+    duration_after: float = 0.0
+    compression_ratio: float = 0.0
+    segments: list[dict] = []
+    transcript: str = ""
+    subtitle_path: str = ""
+    message: str = ""
+
+
+class CondenseSegmentsRequest(BaseModel):
+    """指定片段缩编请求"""
+    segments: list[dict] = Field(..., description="片段列表 [{start, end, text}, ...]")
+    burn_subtitle: bool = Field(default=True, description="是否烧录字幕")
+
+
+@app.post("/api/condense", response_model=CondenseResponseModel)
+async def api_condense(
+    file: UploadFile = File(...),
+    strategy: str = Form(default="content_condense"),
+    target_duration: float = Form(default=60.0),
+    target_ratio: float = Form(default=9/16),
+    language: str = Form(default="zh"),
+):
+    """
+    视频智能缩编接口
+
+    支持三种策略：
+    - smart_compress: 智能压缩（重编码、删除无声段）
+    - content_condense: 内容缩编（保留精彩片段）
+    - smart_crop: 智能裁剪（人脸/主体跟随）
+    """
+    # 验证策略
+    if strategy not in ("smart_compress", "content_condense", "smart_crop"):
+        raise HTTPException(status_code=400, detail="strategy must be: smart_compress / content_condense / smart_crop")
+
+    # 保存上传的文件
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_input:
+        shutil.copyfileobj(file.file, tmp_input)
+        input_path = tmp_input.name
+
+    # 生成输出路径
+    output_filename = f"condensed_{strategy}_{Path(file.filename).stem}{suffix}"
+    output_path = str(output_dir / output_filename)
+
+    try:
+        from video.condenser import condense_video
+
+        def progress_callback(progress: float, message: str):
+            # 日志进度（实际可用 SSE 流）
+            print(f"[{strategy}] {message} ({int(progress*100)}%)")
+
+        result = condense_video(
+            video_path=input_path,
+            output_path=output_path,
+            strategy=strategy,
+            target_duration=target_duration,
+            target_ratio=target_ratio,
+            language=language,
+            progress_callback=progress_callback,
+        )
+
+        if result.success:
+            dl_filename = Path(result.output_path).name
+            download_url = f"http://172.18.98.97:8000/api/download/{dl_filename}"
+
+            return CondenseResponseModel(
+                success=True,
+                input_path=result.input_path,
+                output_path=result.output_path,
+                download_url=download_url,
+                strategy=result.strategy,
+                duration_before=result.duration_before,
+                duration_after=result.duration_after,
+                compression_ratio=result.duration_before / result.duration_after if result.duration_after > 0 else 0,
+                segments=result.segments,
+                transcript=result.transcript,
+                subtitle_path=result.subtitle_path,
+                message=f"缩编完成！时长 {result.duration_before:.1f}s -> {result.duration_after:.1f}s",
+            )
+        else:
+            raise HTTPException(status_code=500, detail=result.error)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if os.path.exists(input_path):
+            os.unlink(input_path)
+
+
+@app.post("/api/condense/segments", response_model=CondenseResponseModel)
+async def api_condense_segments(
+    file: UploadFile = File(...),
+    segments: str = Form(..., description="JSON格式片段列表"),
+    burn_subtitle: bool = Form(default=True),
+):
+    """
+    指定片段缩编接口
+
+    根据指定的片段列表进行裁剪拼接
+    """
+    import json as json_lib
+
+    # 解析片段
+    try:
+        segment_list = json_lib.loads(segments)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid segments JSON")
+
+    if not segment_list:
+        raise HTTPException(status_code=400, detail="No segments provided")
+
+    # 保存上传的文件
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_input:
+        shutil.copyfileobj(file.file, tmp_input)
+        input_path = tmp_input.name
+
+    # 生成输出路径
+    output_filename = f"custom_segments_{Path(file.filename).stem}{suffix}"
+    output_path = str(output_dir / output_filename)
+    base_dir = str(output_dir)
+
+    try:
+        from video.funclip_wrapper import cut_segment, concatenate_segments, full_transcribe_pipeline
+
+        # 裁剪所有片段
+        temp_files = []
+        for i, seg in enumerate(segment_list):
+            start = seg.get("start", 0)
+            end = seg.get("end", 0)
+            if end <= start:
+                continue
+            temp_path = os.path.join(base_dir, f"seg_temp_{i}.mp4")
+            if cut_segment(input_path, temp_path, start, end, copy_codec=True):
+                temp_files.append(temp_path)
+
+        if not temp_files:
+            raise HTTPException(status_code=500, detail="Failed to cut segments")
+
+        # 拼接
+        concatenate_segments(temp_files, output_path)
+
+        # 清理临时文件
+        for f in temp_files:
+            try:
+                os.remove(f)
+            except:
+                pass
+
+        # 烧录字幕（如需要）
+        subtitle_path = ""
+        if burn_subtitle:
+            # 先生成字幕
+            asr_result = full_transcribe_pipeline(
+                input_path, base_dir, model_size="base", language="zh"
+            )
+            if asr_result:
+                # 过滤字幕
+                from video.condenser import _filter_srt_by_ranges
+                filtered_srt = _filter_srt_by_ranges(
+                    asr_result.srt_content,
+                    [(s["start"], s["end"]) for s in segment_list]
+                )
+                subtitle_path = os.path.join(base_dir, f"{Path(file.filename).stem}_custom.srt")
+                with open(subtitle_path, "w", encoding="utf-8") as f:
+                    f.write(filtered_srt)
+
+                # 烧录
+                subtitle_burn_path = output_path.replace(".mp4", "_subtitled.mp4")
+                from video.funclip_wrapper import burn_subtitle
+                if burn_subtitle(output_path, subtitle_path, subtitle_burn_path):
+                    output_path = subtitle_burn_path
+
+        # 计算时长
+        total_duration = sum(s.get("end", 0) - s.get("start", 0) for s in segment_list)
+        dl_filename = Path(output_path).name
+
+        return CondenseResponseModel(
+            success=True,
+            input_path=input_path,
+            output_path=output_path,
+            download_url=f"http://172.18.98.97:8000/api/download/{dl_filename}",
+            strategy="custom_segments",
+            duration_before=0,
+            duration_after=total_duration,
+            segments=segment_list,
+            subtitle_path=subtitle_path,
+            message=f"片段拼接完成！共 {len(segment_list)} 个片段，总时长 {total_duration:.1f}s",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if os.path.exists(input_path):
+            os.unlink(input_path)
+
+
+@app.post("/api/condense/transcribe")
+async def api_condense_transcribe(
+    file: UploadFile = File(...),
+    language: str = Form(default="zh"),
+):
+    """
+    仅进行语音识别（不缩编）
+
+    返回识别结果和 SRT 字幕
+    """
+    # 保存上传的文件
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_input:
+        shutil.copyfileobj(file.file, tmp_input)
+        input_path = tmp_input.name
+
+    base_dir = str(output_dir)
+
+    try:
+        from video.funclip_wrapper import full_transcribe_pipeline
+
+        result = full_transcribe_pipeline(
+            video_path=input_path,
+            output_dir=base_dir,
+            model_size="base",
+            language=language,
+        )
+
+        if result:
+            return {
+                "success": True,
+                "text": result.text,
+                "segments": result.segments,
+                "srt_content": result.srt_content,
+                "duration": result.duration,
+                "srt_path": os.path.join(base_dir, f"{Path(file.filename).stem}.srt"),
+                "txt_path": os.path.join(base_dir, f"{Path(file.filename).stem}.txt"),
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Transcription failed")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if os.path.exists(input_path):
+            os.unlink(input_path)
+
+
 # ============ Main ============
 
 if __name__ == "__main__":
