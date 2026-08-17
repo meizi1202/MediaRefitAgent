@@ -81,6 +81,7 @@ class VideoAgentState(TypedDict):
     all_params_provided: bool
     # 处理状态
     current_step: str
+    current_feature: Optional[str]  # 当前功能类型: convert/compress/trim/concat
     messages: list[ConversationMessage]
     transform_result: Optional[TransformResult]
     error: Optional[str]
@@ -88,6 +89,19 @@ class VideoAgentState(TypedDict):
     session_id: Optional[str]
     history: list[ConversationMessage]
     pending_question: Optional[str]  # 等待用户回答的问题
+    # 压缩参数
+    compression_level: Optional[str]
+    compression_explicit: bool
+    # 修剪参数
+    start_time: Optional[float]
+    end_time: Optional[float]
+    start_time_explicit: bool
+    end_time_explicit: bool
+    # 拼接参数
+    keep_audio: bool
+    concat_explicit: bool
+    # 修剪结果
+    trim_result: Optional[dict]
 
 
 # ============ Intent Parser ============
@@ -325,6 +339,46 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                 state["messages"].append(msg)
                 return state
 
+            # 如果是视频修剪请求
+            if target_feature == "trim":
+                start_time = parsed.get("start_time")
+                end_time = parsed.get("end_time")
+                start_time_explicit = parsed.get("start_time_explicit", False)
+                end_time_explicit = parsed.get("end_time_explicit", False)
+
+                state["current_feature"] = "trim"
+                if start_time is not None:
+                    try:
+                        state["start_time"] = float(start_time)
+                    except (ValueError, TypeError):
+                        state["start_time"] = start_time
+                if end_time is not None:
+                    try:
+                        state["end_time"] = float(end_time)
+                    except (ValueError, TypeError):
+                        state["end_time"] = end_time
+                state["start_time_explicit"] = start_time_explicit
+                state["end_time_explicit"] = end_time_explicit
+                state["all_params_provided"] = start_time_explicit and end_time_explicit
+                if not state["all_params_provided"]:
+                    missing = []
+                    if not start_time_explicit:
+                        missing.append("开始时间")
+                    if not end_time_explicit:
+                        missing.append("结束时间")
+                    state["pending_question"] = f"请提供{'和'.join(missing)}"
+                else:
+                    state["pending_question"] = None
+                    state["current_step"] = "execute_trim"
+
+                msg = ConversationMessage(
+                    role="assistant",
+                    content=llm_response,
+                    timestamp=datetime.now().isoformat(),
+                )
+                state["messages"].append(msg)
+                return state
+
             # 如果是转换请求（convert或未识别都走转换流程）
             if target_feature == "convert" or target_feature is None:
                 state["current_feature"] = "convert"
@@ -412,7 +466,9 @@ def detect_video(state: VideoAgentState) -> VideoAgentState:
         )
         state["messages"].append(msg)
 
-        state["current_step"] = "select_strategy"
+        # 只有 convert 类型才需要走 select_strategy，trim/compress/concat 直接执行
+        if state.get("current_feature") in (None, "convert"):
+            state["current_step"] = "select_strategy"
 
     except Exception as e:
         state["error"] = f"方向检测失败: {str(e)}"
@@ -426,6 +482,11 @@ def select_strategy(state: VideoAgentState) -> VideoAgentState:
     # 压缩流程直接执行
     if state.get("current_feature") == "compress" and state.get("all_params_provided"):
         state["current_step"] = "execute_compress"
+        return state
+
+    # 修剪流程直接执行
+    if state.get("current_feature") == "trim" and state.get("all_params_provided"):
+        state["current_step"] = "execute_trim"
         return state
 
     # 检查方向是否相同
@@ -575,6 +636,77 @@ def execute_compress(state: VideoAgentState) -> VideoAgentState:
     return state
 
 
+def execute_trim(state: VideoAgentState) -> VideoAgentState:
+    """执行视频修剪"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    start_time = state.get("start_time")
+    end_time = state.get("end_time")
+
+    if start_time is None or end_time is None:
+        state["error"] = "修剪时间参数不完整"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_path).stem
+    suffix = Path(video_path).suffix
+    output_path = str(output_dir / f"trimmed_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        from video.processor import trim_video, get_video_metadata
+
+        metadata = get_video_metadata(video_path)
+        original_duration = metadata.duration
+        original_size = os.path.getsize(video_path)
+
+        def progress_callback(progress: float):
+            pass
+
+        trim_video(video_path, output_path, start_time, end_time)
+
+        trimmed_size = os.path.getsize(output_path)
+        trimmed_duration = end_time - start_time
+
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"视频修剪完成！\n\n原始时长: {original_duration:.1f}秒\n原始大小: {original_size/1024/1024:.2f}MB\n修剪后时长: {trimmed_duration:.1f}秒\n修剪后大小: {trimmed_size/1024/1024:.2f}MB\n开始时间: {start_time}秒\n结束时间: {end_time}秒",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+        # 保存结果供预览使用
+        state["trim_result"] = {
+            "output_path": output_path,
+            "original_duration": original_duration,
+            "original_size": original_size,
+            "trimmed_duration": trimmed_duration,
+            "trimmed_size": trimmed_size,
+            "start_time": start_time,
+            "end_time": end_time,
+        }
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"修剪异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
 def execute_concat(state: VideoAgentState) -> VideoAgentState:
     """执行视频拼接"""
     video_path = state.get("temp_video_path") or state.get("video_path")
@@ -686,6 +818,10 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
             strategy_explicit = parsed.get("strategy_explicit", False)
             ratio = parsed.get("target_ratio")
             ratio_explicit = parsed.get("ratio_explicit", False)
+            start_time = parsed.get("start_time")
+            start_time_explicit = parsed.get("start_time_explicit", False)
+            end_time = parsed.get("end_time")
+            end_time_explicit = parsed.get("end_time_explicit", False)
             llm_response = parsed.get("response", "")
             all_params_provided = parsed.get("all_params_provided", False)
 
@@ -708,6 +844,31 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
                 else:
                     state["all_params_provided"] = False
                     state["pending_question"] = "请上传至少2个视频文件进行拼接"
+            elif target_feature == "trim":
+                state["current_feature"] = "trim"
+                if start_time is not None:
+                    try:
+                        state["start_time"] = float(start_time)
+                    except (ValueError, TypeError):
+                        state["start_time"] = start_time
+                if end_time is not None:
+                    try:
+                        state["end_time"] = float(end_time)
+                    except (ValueError, TypeError):
+                        state["end_time"] = end_time
+                state["start_time_explicit"] = start_time_explicit
+                state["end_time_explicit"] = end_time_explicit
+                state["all_params_provided"] = start_time_explicit and end_time_explicit
+                if not state["all_params_provided"]:
+                    missing = []
+                    if not start_time_explicit:
+                        missing.append("开始时间")
+                    if not end_time_explicit:
+                        missing.append("结束时间")
+                    state["pending_question"] = f"请提供{'和'.join(missing)}"
+                else:
+                    state["pending_question"] = None
+                    state["current_step"] = "execute_trim"
             else:
                 # convert 或其他
                 state["current_feature"] = "convert"
@@ -767,6 +928,10 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
         # 参数完整时直接设置执行步骤
         if state.get("current_feature") == "compress":
             state["current_step"] = "execute_compress"
+        elif state.get("current_feature") == "trim":
+            state["current_step"] = "execute_trim"
+        elif state.get("current_feature") == "concat":
+            state["current_step"] = "execute_concat"
         else:
             state["current_step"] = "execute_transform"
         return state
@@ -774,12 +939,12 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
 
 # ============ Route Functions ============
 
-def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "execute_compress", "execute_concat", "waiting_for_user", "confirm_complete"]:
+def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execute_transform", "execute_compress", "execute_concat", "execute_trim", "waiting_for_user", "confirm_complete"]:
     """判断下一步"""
     current_step = state.get("current_step")
 
     # 如果正在执行中，直接继续执行
-    if current_step in ("execute_transform", "execute_compress", "execute_concat"):
+    if current_step in ("execute_transform", "execute_compress", "execute_concat", "execute_trim"):
         return current_step
 
     # 如果刚从 handle_user_response 返回（current_step 被设置为 confirm_complete），结束流程
@@ -800,6 +965,9 @@ def should_proceed(state: VideoAgentState) -> Literal["select_strategy", "execut
     # 拼接流程（参数由前端提供）
     if state.get("current_feature") == "concat" and state.get("all_params_provided"):
         return "execute_concat"
+    # 修剪流程
+    if state.get("current_feature") == "trim" and state.get("all_params_provided"):
+        return "execute_trim"
     # 所有参数都提供了才执行转换
     if state.get("all_params_provided"):
         return "execute_transform"
@@ -822,6 +990,7 @@ def create_video_agent_graph():
     graph.add_node("execute_transform", execute_transform)
     graph.add_node("execute_compress", execute_compress)
     graph.add_node("execute_concat", execute_concat)
+    graph.add_node("execute_trim", execute_trim)
     graph.add_node("confirm_complete", confirm_complete)
     graph.add_node("handle_user_response", handle_user_response)
 
@@ -841,10 +1010,14 @@ def create_video_agent_graph():
             "execute_transform": "execute_transform",
             "execute_compress": "execute_compress",
             "execute_concat": "execute_concat",
+            "execute_trim": "execute_trim",
             "waiting_for_user": "handle_user_response",
             "confirm_complete": "confirm_complete",
         }
     )
+
+    # execute_trim 执行完成后直接结束
+    graph.add_edge("execute_trim", "confirm_complete")
 
     # handle_user_response 条件边
     graph.add_conditional_edges(
@@ -900,12 +1073,22 @@ class VideoAgent:
             ratio_explicit=False,
             all_params_provided=False,
             current_step="analyze_intent",
+            current_feature=None,
             messages=[],
             transform_result=None,
             error=None,
             session_id=session_id or datetime.now().strftime("%Y%m%d%H%M%S"),
             history=[],
             pending_question=None,
+            compression_level=None,
+            compression_explicit=False,
+            start_time=None,
+            end_time=None,
+            start_time_explicit=False,
+            end_time_explicit=False,
+            keep_audio=True,
+            concat_explicit=False,
+            trim_result=None,
         )
 
     def run(

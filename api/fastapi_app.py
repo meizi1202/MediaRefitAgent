@@ -900,7 +900,17 @@ async def agent_chat(
 
         # 准备响应数据
         data = None
-        if result.get("transform_result"):
+        # 检查是否是修剪结果
+        if result.get("trim_result"):
+            tr = result["trim_result"]
+            data = {
+                "output_path": tr.get("output_path"),
+                "original_duration": tr.get("original_duration"),
+                "trimmed_duration": tr.get("trimmed_duration"),
+                "start_time": tr.get("start_time"),
+                "end_time": tr.get("end_time"),
+            }
+        elif result.get("transform_result"):
             tr = result["transform_result"]
             data = {
                 "output_path": tr.output_path if hasattr(tr, 'output_path') else None,

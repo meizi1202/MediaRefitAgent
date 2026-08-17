@@ -193,6 +193,7 @@ def transform(
                 request.input_path,
                 request.output_path,
                 target_ratio=target_ratio,
+                target_orientation=target_orientation,
                 progress_callback=progress_callback,
             )
             strategy_used = "crop"
@@ -211,6 +212,7 @@ def transform(
                     request.input_path,
                     request.output_path,
                     target_ratio=target_ratio,
+                    target_orientation=target_orientation,
                     progress_callback=progress_callback,
                 )
                 strategy_used = "smart_crop (fallback to crop)"
@@ -220,6 +222,7 @@ def transform(
                 request.input_path,
                 request.output_path,
                 target_ratio=target_ratio,
+                target_orientation=target_orientation,
                 progress_callback=progress_callback,
             )
             strategy_used = "stretch"
@@ -229,6 +232,7 @@ def transform(
                 request.input_path,
                 request.output_path,
                 target_ratio=target_ratio,
+                target_orientation=target_orientation,
                 progress_callback=progress_callback,
             )
             strategy_used = "mirror_scroll"
@@ -238,6 +242,7 @@ def transform(
                 request.input_path,
                 request.output_path,
                 target_ratio=target_ratio,
+                target_orientation=target_orientation,
                 progress_callback=progress_callback,
             )
             strategy_used = "pan_scroll"

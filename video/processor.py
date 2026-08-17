@@ -286,6 +286,7 @@ def crop_to_ratio(
     input_path: str,
     output_path: str,
     target_ratio: float = 9 / 16,
+    target_orientation: str = "portrait",
     progress_callback: Optional[Callable[[float], None]] = None,
 ) -> bool:
     """
@@ -295,32 +296,31 @@ def crop_to_ratio(
         input_path: 输入路径
         output_path: 输出路径
         target_ratio: 目标比例 (height/width)
+        target_orientation: 目标方向 (portrait/landscape)
         progress_callback: 进度回调
 
     Returns:
         是否成功
     """
     metadata = get_video_metadata(input_path)
-    original_ratio = metadata.width / metadata.height if metadata.height > 0 else 1
 
-    if abs(original_ratio - target_ratio) < 0.01:
-        import shutil
-        shutil.copy(input_path, output_path)
-        return True
-
-    # 计算裁剪尺寸
-    if original_ratio > target_ratio:
-        # 视频更宽，裁剪左右
-        crop_width = int(metadata.height * target_ratio)
-        crop_height = metadata.height
-        x_offset = (metadata.width - crop_width) // 2
-        y_offset = 0
-    else:
-        # 视频更高，裁剪上下
+    # 根据目标方向计算裁剪尺寸
+    if target_orientation == "portrait":
+        # 目标竖屏：裁剪上下（保持宽度一致）
         crop_width = metadata.width
         crop_height = int(metadata.width / target_ratio)
         x_offset = 0
         y_offset = (metadata.height - crop_height) // 2
+    else:
+        # 目标横屏：裁剪左右（保持高度一致）
+        crop_height = metadata.height
+        crop_width = int(metadata.height * target_ratio)
+        x_offset = (metadata.width - crop_width) // 2
+        y_offset = 0
+
+    # 确保尺寸为偶数（x264 要求）
+    crop_width = (crop_width + 1) // 2 * 2
+    crop_height = (crop_height + 1) // 2 * 2
 
     vf = f"crop={crop_width}:{crop_height}:{x_offset}:{y_offset}"
 
@@ -343,6 +343,7 @@ def stretch_to_ratio(
     input_path: str,
     output_path: str,
     target_ratio: float = 9 / 16,
+    target_orientation: str = "portrait",
     progress_callback: Optional[Callable[[float], None]] = None,
 ) -> bool:
     """
@@ -352,15 +353,26 @@ def stretch_to_ratio(
         input_path: 输入路径
         output_path: 输出路径
         target_ratio: 目标比例 (height/width)
+        target_orientation: 目标方向 (portrait/landscape)
         progress_callback: 进度回调
 
     Returns:
         是否成功
     """
     metadata = get_video_metadata(input_path)
-    target_width = metadata.width
-    target_height = int(metadata.width / target_ratio)
+
+    # 根据目标方向计算拉伸尺寸
+    if target_orientation == "portrait":
+        # 目标竖屏：宽度不变，高度按比例计算
+        target_width = metadata.width
+        target_height = int(metadata.width / target_ratio)
+    else:
+        # 目标横屏：高度不变，宽度按比例计算
+        target_height = metadata.height
+        target_width = int(metadata.height * target_ratio)
+
     # libx264 requires dimensions divisible by 2, round to nearest even number
+    target_width = (target_width + 1) // 2 * 2
     target_height = (target_height + 1) // 2 * 2
 
     cmd = [
@@ -427,8 +439,13 @@ def compress_video(
             "-y",
             "-i", input_path,
             "-c:v", original_codec,
-            "-preset", params["preset"],
+            "-preset", "ultrafast",
             "-crf", str(params["crf"]),
+            # 内存优化参数（解决大分辨率视频malloc失败）
+            "-profile:v", "baseline",
+            "-level", "3.1",
+            "-refs", "1",
+            "-threads", "1",
             # 不使用 -vf scale，保留原始分辨率
             # 不使用 -r，保留原始帧率
             "-c:a", "aac",
@@ -446,15 +463,17 @@ def mirror_scroll(
     input_path: str,
     output_path: str,
     target_ratio: float = 9 / 16,
+    target_orientation: str = "portrait",
     progress_callback: Optional[Callable[[float], None]] = None,
 ) -> bool:
     """
-    镜像滚动效果（适合竖屏转横屏）
+    镜像滚动效果（适合横屏转竖屏）
 
     Args:
         input_path: 输入路径
         output_path: 输出路径
         target_ratio: 目标比例 (height/width)
+        target_orientation: 目标方向 (portrait/landscape)
         progress_callback: 进度回调
 
     Returns:
@@ -464,7 +483,7 @@ def mirror_scroll(
 
     # 先填充到目标比例
     temp_path = output_path + ".tmp.pad.mp4"
-    pad_to_ratio(input_path, temp_path, target_ratio, progress_callback)
+    pad_to_ratio(input_path, temp_path, target_ratio, target_orientation, progress_callback)
 
     # 镜像翻转
     cmd = [
@@ -491,10 +510,11 @@ def pan_scroll(
     input_path: str,
     output_path: str,
     target_ratio: float = 9 / 16,
+    target_orientation: str = "portrait",
     progress_callback: Optional[Callable[[float], None]] = None,
 ) -> bool:
     """
-    平移滚动效果（适合竖屏转横屏）
+    平移滚动效果（适合横屏转竖屏）
 
     视频从一侧平滑移动到另一侧
 
@@ -502,21 +522,30 @@ def pan_scroll(
         input_path: 输入路径
         output_path: 输出路径
         target_ratio: 目标比例 (height/width)
+        target_orientation: 目标方向 (portrait/landscape)
         progress_callback: 进度回调
 
     Returns:
         是否成功
     """
     metadata = get_video_metadata(input_path)
-
-    # 计算目标尺寸
-    target_height = metadata.height
-    target_width = int(metadata.height / target_ratio)
-
-    # 平移效果：从左到右滚动
-    # 使用 zoompan 和 hstack 实现
     duration = metadata.duration if metadata.duration > 0 else 10
 
+    # 根据目标方向计算目标尺寸（确保尺寸为偶数）
+    if target_orientation == "portrait":
+        # 目标竖屏：宽度不变，高度按比例计算
+        target_width = metadata.width
+        target_height = int(metadata.width / target_ratio)
+    else:
+        # 目标横屏：高度不变，宽度按比例计算
+        target_height = metadata.height
+        target_width = int(metadata.height * target_ratio)
+
+    # 确保尺寸为偶数（x264 要求）
+    target_width = (target_width + 1) // 2 * 2
+    target_height = (target_height + 1) // 2 * 2
+
+    # 平移效果：从左到右滚动
     cmd = [
         FFMPEG_PATH,
         "-y",

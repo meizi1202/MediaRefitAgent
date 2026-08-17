@@ -205,7 +205,7 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
         history_context += "【当前输入】\n"
 
     # ===== 第一步：识别工具 =====
-    tool_prompt = f"""{history_context}用户输入：{{user_input}}
+    tool_prompt = f"""{history_context}用户输入：{user_input}
 
 请识别用户想要使用的工具：
 - 如果用户说"转换"、"转成"、"转竖屏"、"转横屏"、"横竖屏" -> 返回 "convert"
@@ -215,7 +215,7 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
 - 如果用户说"拼接"、"合并"、"连接"、"concat"、"merge" -> 返回 "concat"
 - 如果无法判断 -> 返回 "null"
 
-只返回一个词：convert / compress / info / trim / concat / null""".format(user_input=user_input)
+只返回一个词：convert / compress / info / trim / concat / null"""
 
     tool_messages = [{"role": "user", "content": tool_prompt}]
     tool_result = llm._generate(tool_messages)
