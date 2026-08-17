@@ -1,6 +1,6 @@
 # MediaRefitAgent
 
-视频横竖屏转换智能体，基于 FFmpeg + LangGraph + FastAPI。
+视频横竖屏转换智能体，基于 FFmpeg + Langchain+LangGraph + FastAPI。
 
 ## 功能
 

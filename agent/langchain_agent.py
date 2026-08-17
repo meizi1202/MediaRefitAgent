@@ -288,7 +288,7 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
 如果参数完整，response示例："好的，我用中压缩级别压缩视频。"
 如果参数不完整，response示例格式：
 1. 先说明已提取到的参数（如有）
-2. 再说明缺少哪些参数及可选值
+2. 再说明缺少哪些参数及可选值et
 示例："请问要什么压缩级别？低压缩保留较高质量但文件较大，中压缩质量和体积平衡，高压缩体积最小但质量较低。请选择级别。" """
 
     elif target_feature == "info":
@@ -392,46 +392,22 @@ response示例："好的，我来查看视频信息。" """
                 except json.JSONDecodeError:
                     parsed = {}
 
-        # 方法2：如果 JSON 解析失败或字段为空，尝试从文本中提取
-        if not parsed.get("response"):
-            # 尝试从文本中提取有用信息作为 response
-            lines = param_content.strip().split('\n')
-            for line in reversed(lines):
-                line = line.strip()
-                # 跳过空行、JSON标记行
-                if not line or line.startswith('{') or line.startswith('}') or line.startswith('【'):
-                    continue
-                # 跳过纯JSON键名行
-                if any(k in line for k in ['"orientation_explicit"', '"strategy_explicit"', '"ratio_explicit"',
-                                            '"target_orientation"', '"target_ratio"', '"strategy"', '"compression',
-                                            '"response"']):
-                    continue
-                # 取第一行有内容的作为响应
-                if line:
-                    llm_response = line.strip('",。：:「」''"" ')
-                    break
-
-        # 如果 JSON 解析失败，根据文本内容推断参数
-        if parsed and parsed.get("response"):
-            llm_response = parsed.get("response", "")
-
-        # 从 response 中尝试推断关键参数（当 JSON 解析失败时）
-        if not parsed.get("orientation_explicit") and not parsed.get("target_orientation"):
-            text_lower = param_content.lower()
-            if "竖屏" in param_content or "portrait" in text_lower:
-                parsed["target_orientation"] = "portrait"
-                parsed["orientation_explicit"] = True
-            elif "横屏" in param_content or "landscape" in text_lower:
-                parsed["target_orientation"] = "landscape"
-                parsed["orientation_explicit"] = True
-
-        if not parsed.get("ratio_explicit") and not parsed.get("target_ratio"):
-            if "9:16" in param_content:
-                parsed["target_ratio"] = "9:16"
-                parsed["ratio_explicit"] = True
-            elif "16:9" in param_content:
-                parsed["target_ratio"] = "16:9"
-                parsed["ratio_explicit"] = True
+        # 方法2：如果 JSON 解析失败，尝试直接提取 response 字段
+        if not parsed:
+            response_match = re.search(r'"response"\s*:\s*"([^"]*)"', param_content)
+            if response_match:
+                llm_response = response_match.group(1)
+            else:
+                # 尝试从文本中提取最后一个 "之后的内容 作为响应
+                lines = param_content.strip().split('\n')
+                for line in reversed(lines):
+                    line = line.strip()
+                    if line and not line.startswith('{') and not line.startswith('}'):
+                        # 排除 JSON 相关行
+                        if '"response"' not in line and '"target_' not in line and '"strategy' not in line:
+                            llm_response = line.strip('",。：:「」''""')
+                            if llm_response:
+                                break
 
         # 判断 all_params_provided
         if target_feature == "compress":
@@ -453,7 +429,6 @@ response示例："好的，我来查看视频信息。" """
         return {
             "target_feature": target_feature,
             "target_orientation": parsed.get("target_orientation"),
-            "target_ratio": parsed.get("target_ratio"),
             "strategy": parsed.get("strategy"),
             "compression_level": parsed.get("compression_level"),
             "start_time": parsed.get("start_time"),
@@ -463,7 +438,6 @@ response示例："好的，我来查看视频信息。" """
             "file_count": parsed.get("file_count", 0),
             "orientation_explicit": parsed.get("orientation_explicit", False),
             "strategy_explicit": parsed.get("strategy_explicit", False),
-            "ratio_explicit": parsed.get("ratio_explicit", False),
             "compression_explicit": parsed.get("compression_explicit", False),
             "start_time_explicit": parsed.get("start_time_explicit", False),
             "end_time_explicit": parsed.get("end_time_explicit", False),
