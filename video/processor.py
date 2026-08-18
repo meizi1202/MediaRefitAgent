@@ -82,11 +82,18 @@ def run_ffmpeg(cmd: list, progress_callback: Optional[Callable[[float], None]] =
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=True,
         )
 
         output = []
-        for line in process.stderr:
+        # 使用二进制读取，手动解码，避免编码问题
+        while True:
+            chunk = process.stderr.read(1024)
+            if not chunk:
+                break
+            try:
+                line = chunk.decode('utf-8', errors='replace')
+            except:
+                line = chunk.decode('gbk', errors='replace')
             output.append(line)
             if progress_callback and "time=" in line:
                 # 解析进度

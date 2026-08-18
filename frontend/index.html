@@ -893,7 +893,17 @@
                     hideAssistantTyping();
 
                     if (data.success) {
-                        const msg = `转换完成！\n\n输出文件: ${data.output_path}`;
+                        const filename = data.output_path.split(/\\|\//).pop();
+                        const downloadUrl = `${API_BASE}/api/download/${filename}`;
+                        // 比例映射
+                        const ratioDisplay = {
+                            '0.5625': '9:16', '0.8': '4:5', '1.0': '1:1',
+                            '1.7778': '16:9', '2.3333': '21:9', '1.3333': '4:3',
+                            '0.6667': '2:3', '0.6666': '2:3', '1.5': '3:2'
+                        };
+                        const ratio = String(data.target_ratio || '0.5625');
+                        const ratioText = ratioDisplay[ratio] || ratio;
+                        const msg = `转换完成！\n\n输出文件: <a href="${downloadUrl}" target="_blank" style="color:#4CAF50;">${filename}</a>\n目标方向: ${data.target_orientation === 'portrait' ? '竖屏' : '横屏'}\n目标比例: ${ratioText}\n使用策略: 填充黑边`;
                         addMessage('assistant', msg);
                         console.log('Transform success, calling updatePreview with:', data);
                         updatePreview(data);
