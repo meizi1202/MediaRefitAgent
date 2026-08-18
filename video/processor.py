@@ -768,3 +768,500 @@ def transform_video(
         return rotate_video(input_path, output_path, 90, progress_callback)
     else:
         raise Exception(f"Unknown strategy: {strategy}")
+
+
+# ============ 老视频修复 FFmpeg 滤镜函数 ============
+
+def denoise_video(
+    input_path: str,
+    output_path: str,
+    level: str = "medium",
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    视频去噪
+
+    Args:
+        input_path: 输入路径
+        output_path: 输出路径
+        level: 去噪级别 (light/medium/strong)
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    # hqdn3d 参数：derez spatial-temporal strength
+    # light: 2:1.5:2.5  medium: 4:3:5  strong: 6:4.5:7.5
+    level_params = {
+        "light": "2:1.5:2.5",
+        "medium": "4:3:5",
+        "strong": "6:4.5:7.5",
+    }
+    hqdn3d_param = level_params.get(level, level_params["medium"])
+
+    cmd = [
+        FFMPEG_PATH,
+        "-y",
+        "-i", input_path,
+        "-vf", f"hqdn3d={hqdn3d_param}",
+        "-c:a", "copy",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+    if not success:
+        raise Exception(f"Denoise failed: {error}")
+    return True
+
+
+def color_correct_video(
+    input_path: str,
+    output_path: str,
+    saturation: float = 1.0,
+    contrast: float = 1.0,
+    brightness: float = 0.0,
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    色彩校正
+
+    Args:
+        input_path: 输入路径
+        output_path: 输出路径
+        saturation: 饱和度 (0.0 ~ 2.0, 1.0为原始)
+        contrast: 对比度 (0.5 ~ 2.0, 1.0为原始)
+        brightness: 亮度 (-1.0 ~ 1.0, 0为原始)
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    # 使用 eq 滤镜进行色彩调整
+    vf = f"eq=s={saturation}:c={contrast}:b={brightness}"
+
+    cmd = [
+        FFMPEG_PATH,
+        "-y",
+        "-i", input_path,
+        "-vf", vf,
+        "-c:a", "copy",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+    if not success:
+        raise Exception(f"Color correct failed: {error}")
+    return True
+
+
+def sharpen_video(
+    input_path: str,
+    output_path: str,
+    level: str = "medium",
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    视频锐化（去抖动增强）
+
+    Args:
+        input_path: 输入路径
+        output_path: 输出路径
+        level: 锐化级别 (light/medium/strong)
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    # unsharp 参数：luma_msize_x:luma_msize_y:luma_amount
+    # 正值锐化，负值模糊
+    level_params = {
+        "light": "5:5:0.5",
+        "medium": "5:5:1.0",
+        "strong": "7:7:1.5",
+    }
+    unsharp_param = level_params.get(level, level_params["medium"])
+
+    cmd = [
+        FFMPEG_PATH,
+        "-y",
+        "-i", input_path,
+        "-vf", f"unsharp={unsharp_param}",
+        "-c:a", "copy",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+    if not success:
+        raise Exception(f"Sharpen failed: {error}")
+    return True
+
+
+def remove_scratch(
+    input_path: str,
+    output_path: str,
+    level: str = "medium",
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    划痕修复
+
+    使用 FFmpeg removegrain + deflicker 滤镜减少老胶片瑕疵
+    注意：descratch 滤镜在标准 FFmpeg 中不可用，使用替代方案
+
+    Args:
+        input_path: 输入路径
+        output_path: 输出路径
+        level: 修复级别 (light/medium/strong)
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    # removegrain 模式：1=轻度去噪, 2=中度去噪, 3=强力去噪
+    level_params = {
+        "light": "1",
+        "medium": "2",
+        "strong": "3",
+    }
+    rg_mode = level_params.get(level, level_params["medium"])
+
+    cmd = [
+        FFMPEG_PATH,
+        "-y",
+        "-i", input_path,
+        "-vf", f"removegrain={rg_mode}",
+        "-c:a", "copy",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+    if not success:
+        raise Exception(f"Remove scratch failed: {error}")
+    return True
+
+
+def remove_flicker(
+    input_path: str,
+    output_path: str,
+    level: str = "medium",
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    闪烁修复
+
+    使用帧间亮度平滑减少闪烁
+
+    Args:
+        input_path: 输入路径
+        output_path: 输出路径
+        level: 修复级别 (light/medium/strong)
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    # 使用 fade 滤镜进行亮度平滑
+    # 结合 mpdecimate 减少闪烁
+    if level == "light":
+        # 轻度：仅使用轻微的对比度调整
+        vf = "eq=contrast=1.05"
+    elif level == "medium":
+        # 中度：对比度调整 + 轻微去闪烁
+        vf = "eq=contrast=1.1,hqdn3d=2:1.5:2.5"
+    else:  # strong
+        # 强力：多帧平均 + 对比度调整
+        vf = "eq=contrast=1.15,hqdn3d=3:2:3"
+
+    cmd = [
+        FFMPEG_PATH,
+        "-y",
+        "-i", input_path,
+        "-vf", vf,
+        "-c:a", "copy",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+    if not success:
+        raise Exception(f"Remove flicker failed: {error}")
+    return True
+
+
+def interpolate_frames(
+    input_path: str,
+    output_path: str,
+    target_fps: int = 60,
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    补帧（帧率提升）
+
+    使用 FFmpeg minterpolate 滤镜进行帧率转换
+
+    Args:
+        input_path: 输入路径
+        output_path: 输出路径
+        target_fps: 目标帧率
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    # 获取原视频帧率
+    metadata = get_video_metadata(input_path)
+    original_fps = metadata.fps if metadata.fps > 0 else 30
+
+    # minterpolate 参数：fps:mi_mode:block_size
+    # mi_mode: scenechange / mci
+    vf = f"minterpolate=fps={target_fps}:mi_mode=mci"
+
+    cmd = [
+        FFMPEG_PATH,
+        "-y",
+        "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-c:a", "copy",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+    if not success:
+        raise Exception(f"Interpolate frames failed: {error}")
+    return True
+
+
+def super_resolve_video(
+    input_path: str,
+    output_path: str,
+    scale: int = 2,
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    视频超分辨率（放大）
+
+    使用 FFmpeg scale 滤镜进行分辨率放大
+
+    Args:
+        input_path: 输入路径
+        output_path: 输出路径
+        scale: 放大倍数 (2 or 4)
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    # 获取原视频分辨率
+    metadata = get_video_metadata(input_path)
+    original_width = metadata.width
+    original_height = metadata.height
+
+    # 计算目标分辨率（确保是偶数）
+    target_width = (original_width * scale + 1) // 2 * 2
+    target_height = (original_height * scale + 1) // 2 * 2
+
+    cmd = [
+        FFMPEG_PATH,
+        "-y",
+        "-i", input_path,
+        "-vf", f"scale={target_width}:{target_height}:flags=lanczos",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "20",
+        "-c:a", "copy",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+    if not success:
+        raise Exception(f"Super resolve failed: {error}")
+    return True
+
+
+def restore_video(
+    input_path: str,
+    output_path: str,
+    denoise: bool = False,
+    denoise_level: str = "medium",
+    deblur: bool = False,
+    deblur_level: str = "medium",
+    color_correct: bool = False,
+    saturation: float = 1.0,
+    contrast: float = 1.0,
+    scratch_remove: bool = False,
+    scratch_level: str = "medium",
+    flicker_remove: bool = False,
+    flicker_level: str = "medium",
+    interpolate: bool = False,
+    target_fps: int = 60,
+    super_resolution: bool = False,
+    scale: int = 2,
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    综合视频修复
+
+    将多个修复操作组合执行
+
+    Args:
+        input_path: 输入路径
+        output_path: 输出路径
+        denoise: 是否去噪
+        denoise_level: 去噪级别
+        deblur: 是否锐化
+        deblur_level: 锐化级别
+        color_correct: 是否色彩校正
+        saturation: 饱和度
+        contrast: 对比度
+        scratch_remove: 是否划痕修复
+        scratch_level: 划痕级别
+        flicker_remove: 是否闪烁修复
+        flicker_level: 闪烁级别
+        interpolate: 是否补帧
+        target_fps: 目标帧率
+        super_resolution: 是否超分
+        scale: 放大倍数
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    import tempfile
+    import shutil
+    from pathlib import Path
+
+    # 构建滤镜链
+    filters = []
+
+    if denoise:
+        # 使用 nlmeans 替代 hqdn3d，质量更好
+        level_params = {
+            "light": "h=7:p=3:r=7",
+            "medium": "h=9:p=5:r=15",
+            "strong": "h=11:p=7:r=21",
+        }
+        nlmeans_param = level_params.get(denoise_level, level_params["medium"])
+        filters.append(f"nlmeans={nlmeans_param}")
+
+    if deblur:
+        # 使用 cas (Contrast Adaptive Sharpen) 替代 unsharp，效果更好
+        level_params = {
+            "light": "0.5",
+            "medium": "1.0",
+            "strong": "1.5",
+        }
+        cas_param = level_params.get(deblur_level, level_params["medium"])
+        filters.append(f"cas={cas_param}")
+
+    if color_correct:
+        filters.append(f"eq=saturation={saturation}:contrast={contrast}")
+
+    if scratch_remove:
+        # 使用 removegrain 作为替代
+        level_params = {
+            "light": "1",
+            "medium": "2",
+            "strong": "3",
+        }
+        rg_mode = level_params.get(scratch_level, level_params["medium"])
+        filters.append(f"removegrain={rg_mode}")
+
+    if flicker_remove:
+        # 改进的闪烁修复：使用 deflicker + eq
+        if flicker_level == "light":
+            filters.append("deflicker")
+        elif flicker_level == "medium":
+            filters.append("deflicker,eq=contrast=1.05")
+        else:
+            filters.append("deflicker,eq=contrast=1.1")
+
+    # 如果有滤镜，先处理
+    temp_path = input_path
+    if filters:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        temp_path = temp_file.name
+        temp_file.close()
+
+        vf = ",".join(filters)
+        cmd = [
+            FFMPEG_PATH,
+            "-y",
+            "-i", input_path,
+            "-vf", vf,
+            "-c:a", "copy",
+            temp_path,
+        ]
+
+        success, error = run_ffmpeg(cmd, progress_callback)
+        if not success:
+            raise Exception(f"Restoration filters failed: {error}")
+
+    # 补帧
+    if interpolate:
+        metadata = get_video_metadata(temp_path)
+        original_fps = metadata.fps if metadata.fps > 0 else 30
+        if original_fps < target_fps:
+            interp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+            interp_path = interp_file.name
+            interp_file.close()
+
+            vf = f"minterpolate=fps={target_fps}:mi_mode=mci"
+            cmd = [
+                FFMPEG_PATH,
+                "-y",
+                "-i", temp_path,
+                "-vf", vf,
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-crf", "23",
+                "-c:a", "copy",
+                interp_path,
+            ]
+
+            success, error = run_ffmpeg(cmd, progress_callback)
+            if not success:
+                raise Exception(f"Interpolation failed: {error}")
+
+            if temp_path != input_path:
+                Path(temp_path).unlink()
+            temp_path = interp_path
+
+    # 超分
+    if super_resolution:
+        metadata = get_video_metadata(temp_path)
+        target_width = (metadata.width * scale + 1) // 2 * 2
+        target_height = (metadata.height * scale + 1) // 2 * 2
+
+        super_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        super_path = super_file.name
+        super_file.close()
+
+        cmd = [
+            FFMPEG_PATH,
+            "-y",
+            "-i", temp_path,
+            "-vf", f"scale={target_width}:{target_height}:flags=lanczos",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "20",
+            "-c:a", "copy",
+            super_path,
+        ]
+
+        success, error = run_ffmpeg(cmd, progress_callback)
+        if not success:
+            raise Exception(f"Super resolution failed: {error}")
+
+        if temp_path != input_path:
+            Path(temp_path).unlink()
+        temp_path = super_path
+
+    # 最终输出
+    if temp_path != output_path:
+        shutil.copy(temp_path, output_path)
+        Path(temp_path).unlink()
+
+    return True
+

@@ -188,6 +188,7 @@
                 <button class="feature-tab" data-feature="trim" onclick="selectFeature('trim', event)">视频修剪</button>
                 <button class="feature-tab" data-feature="concat" onclick="selectFeature('concat', event)">视频拼接</button>
                 <button class="feature-tab" data-feature="condense" onclick="selectFeature('condense', event)">智能缩编</button>
+                <button class="feature-tab" data-feature="restore" onclick="selectFeature('restore', event)">老视频修复</button>
                 <button class="feature-tab disabled" data-feature="format">视频格式转换</button>
                 <button class="feature-tab" data-feature="info" onclick="selectFeature('info', event)">视频信息获取</button>
             </div>
@@ -284,6 +285,26 @@
                 </div>
             </div>
 
+            <!-- 老视频修复参数面板 -->
+            <div class="param-panel" id="paramPanel_restore">
+                <div class="param-section">
+                    <div class="param-label">修复套餐</div>
+                    <div class="param-options">
+                        <button class="param-option active" data-preset="basic" onclick="selectRestorePreset(this)">基础修复</button>
+                        <button class="param-option" data-preset="film" onclick="selectRestorePreset(this)">胶片修复</button>
+                        <button class="param-option" data-preset="enhanced" onclick="selectRestorePreset(this)">增强版</button>
+                    </div>
+                </div>
+                <div class="param-section">
+                    <div class="param-label">说明</div>
+                    <div style="font-size:12px;color:#666;padding:8px 0;">
+                        基础修复：去噪、去抖动、色彩校正<br>
+                        胶片修复：基础 + 划痕修复、闪烁修复<br>
+                        增强版：完整 + 补帧、超分辨率
+                    </div>
+                </div>
+            </div>
+
             <div class="input-area">
                 <div class="input-row">
                     <div class="file-btn">
@@ -325,6 +346,7 @@
         let selectedOrientationText = '竖屏 9:16';
         let selectedCompression = 'medium';
         let selectedCondenseStrategy = 'content_condense';
+        let selectedRestorePreset = 'basic';
         let selectedFile = null;
         let selectedFiles = [];  // 多文件列表，用于拼接
         let currentVideoData = null;
@@ -658,6 +680,12 @@
             selectedCondenseStrategy = el.dataset.condenseStrategy;
         }
 
+        function selectRestorePreset(el) {
+            document.querySelectorAll('#paramPanel_restore .param-option[data-preset]').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedRestorePreset = el.dataset.preset;
+        }
+
         // 发送消息
         async function sendMessage() {
             const input = document.getElementById('messageInput');
@@ -682,6 +710,7 @@
             const orientTabActive = document.querySelector('.feature-tab[data-feature="orient"]')?.classList.contains('active');
             const compressTabActive = document.querySelector('.feature-tab[data-feature="compress"]')?.classList.contains('active');
             const trimTabActive = document.querySelector('.feature-tab[data-feature="trim"]')?.classList.contains('active');
+            const restoreTabActive = document.querySelector('.feature-tab[data-feature="restore"]')?.classList.contains('active');
 
             if (message && compressTabActive && currentFeature === 'compress' && selectedCompression) {
                 const levelNames = { low: '低', medium: '中', high: '高' };
@@ -692,6 +721,22 @@
             } else if (message && orientTabActive && currentFeature === 'orient' && selectedOrientation && selectedStrategy && !isCompressionMessage) {
                 const strategyNames = { pad: '填充黑边', crop: '中心裁剪', pan_scroll: '平移运镜', smart_crop: '智能裁剪', stretch: '拉伸填充', mirror_scroll: '镜像滚动' };
                 fullMessage = `${message} [用户已选择参数：目标方向=${selectedOrientationText}，转换策略=${strategyNames[selectedStrategy]}]`;
+            } else if (message && currentFeature === 'restore' && selectedRestorePreset) {
+                const presetNames = { basic: '基础修复', film: '胶片修复', enhanced: '增强版' };
+                fullMessage = `${message} [用户已选择参数：修复套餐=${presetNames[selectedRestorePreset]}]`;
+                // 先显示消息
+                addMessage('user', fullMessage);
+                input.value = '';
+                showAssistantTyping();
+                // 老视频修复直接调用修复 API
+                const restoreFormData = new FormData();
+                const fileToUpload = selectedFile || fileInput.files[0];
+                if (fileToUpload) {
+                    restoreFormData.append('file', fileToUpload);
+                }
+                restoreFormData.append('message', fullMessage);
+                callRestoreAPI(restoreFormData, selectedRestorePreset);
+                return;
             }
 
             const emptyState = document.getElementById('emptyState');
@@ -795,6 +840,10 @@
             } else if (currentFeature === 'condense') {
                 // 智能缩编调用缩编 API
                 callCondenseAPI(formData, '智能缩编');
+                return;
+            } else if (currentFeature === 'restore') {
+                // 老视频修复调用修复 API
+                callRestoreAPI(formData, selectedRestorePreset);
                 return;
             } else if (currentFeature === 'orient' && selectedOrientation && selectedStrategy) {
                 // 横竖屏转换且已选择方向和策略，直接调用 transform API
@@ -1113,6 +1162,42 @@
                         updatePreviewForCondense(data);
                     } else {
                         addMessage('assistant', `缩编失败: ${data.detail || '未知错误'}`);
+                    }
+                } catch (e) {
+                    hideAssistantTyping();
+                    addMessage('assistant', `请求失败: ${e.message}`);
+                }
+            }
+
+            async function callRestoreAPI(formData, preset) {
+                const fileToUpload = selectedFile || fileInput.files[0];
+                if (!fileToUpload) {
+                    alert('请上传视频文件');
+                    return;
+                }
+
+                hideAssistantTyping();
+                showAssistantTyping();
+
+                const restoreFormData = new FormData();
+                restoreFormData.append('file', fileToUpload);
+                restoreFormData.append('preset', preset);
+
+                try {
+                    const resp = await fetch(`${API_BASE}/api/restore`, {
+                        method: 'POST',
+                        body: restoreFormData
+                    });
+                    const data = await resp.json();
+                    hideAssistantTyping();
+
+                    if (data.success) {
+                        const presetNames = { basic: '基础修复', film: '胶片修复', enhanced: '增强版' };
+                        const msg = `${presetNames[preset] || preset}完成！\n\n套餐: ${data.preset}\n处理时长: ${(data.total_duration || 0).toFixed(1)}秒\n处理阶段: ${(data.stages || []).length} 个`;
+                        addMessage('assistant', msg);
+                        updatePreviewForRestore(data);
+                    } else {
+                        addMessage('assistant', `修复失败: ${data.detail || '未知错误'}`);
                     }
                 } catch (e) {
                     hideAssistantTyping();
@@ -1456,6 +1541,46 @@
                         <div class="row"><span class="label">缩编后</span><span class="value">${(data.duration_after || 0).toFixed(1)}秒</span></div>
                         <div class="row"><span class="label">压缩比</span><span class="value">${ratio}x</span></div>
                         <div class="row"><span class="label">保留片段</span><span class="value">${segCount} 个</span></div>
+                    </div>
+                    <div class="preview-actions">
+                        <button class="preview-btn download" onclick="downloadVideo()">⬇️ 下载</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updatePreviewForRestore(data) {
+            currentVideoData = data;
+            const content = document.getElementById('previewContent');
+            // 构造完整的下载 URL
+            let downloadUrl = data.download_url;
+            if (downloadUrl && !downloadUrl.startsWith('http')) {
+                downloadUrl = API_BASE + downloadUrl;
+            }
+            if (!downloadUrl) {
+                const filename = data.output_path.split('/').pop().split('\\').pop();
+                downloadUrl = `${API_BASE}/api/download/${filename}`;
+            }
+
+            const presetNames = {
+                basic: '基础修复',
+                film: '胶片修复',
+                enhanced: '增强版',
+                custom: '自定义'
+            };
+            const stageCount = (data.stages || []).length;
+
+            content.innerHTML = `
+                <div class="video-container">
+                    <video class="video-player" controls playsinline>
+                        <source src="${downloadUrl}" type="video/mp4">
+                        您的浏览器不支持视频播放
+                    </video>
+                    <div class="video-info">
+                        <div class="row"><span class="label">修复套餐</span><span class="value">${presetNames[data.preset] || data.preset || '-'}</span></div>
+                        <div class="row"><span class="label">处理阶段</span><span class="value">${stageCount} 个</span></div>
+                        <div class="row"><span class="label">处理时长</span><span class="value">${(data.total_duration || 0).toFixed(1)}秒</span></div>
+                        <div class="row"><span class="label">输出大小</span><span class="value">${(data.output_size || 0) > 0 ? (data.output_size / 1024 / 1024).toFixed(2) + ' MB' : '-'}</span></div>
                     </div>
                     <div class="preview-actions">
                         <button class="preview-btn download" onclick="downloadVideo()">⬇️ 下载</button>

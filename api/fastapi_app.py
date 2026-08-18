@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 from typing import Optional, AsyncGenerator
 from contextlib import asynccontextmanager
 from enum import Enum
@@ -141,6 +142,56 @@ class ConcatResponseModel(BaseModel):
     output_duration: float = 0.0
     output_size: int = 0
     keep_audio: bool = True
+    message: str = ""
+
+
+class RestorationPreset(str, Enum):
+    """修复套餐"""
+    BASIC = "basic"
+    FILM = "film"
+    ENHANCED = "enhanced"
+    CUSTOM = "custom"
+
+
+class RestorationOptionsModel(BaseModel):
+    """修复选项模型"""
+    denoise: bool = False
+    denoise_level: str = "medium"
+    deblur: bool = False
+    deblur_level: str = "medium"
+    color_correct: bool = False
+    saturation: int = 0
+    contrast_enhance: bool = False
+    contrast_level: float = 1.0
+    scratch_remove: bool = False
+    scratch_level: str = "medium"
+    flicker_remove: bool = False
+    flicker_level: str = "medium"
+    interpolate: bool = False
+    target_fps: int = 60
+    super_resolution: bool = False
+    scale_factor: int = 2
+
+
+class RestorationStageModel(BaseModel):
+    """修复阶段模型"""
+    stage: str
+    success: bool
+    duration: float
+    error: Optional[str] = None
+
+
+class RestorationResponseModel(BaseModel):
+    """修复响应模型"""
+    success: bool
+    task_id: str = ""
+    input_path: str = ""
+    output_path: str = ""
+    download_url: Optional[str] = None
+    preset: str = ""
+    stages: list[RestorationStageModel] = []
+    total_duration: float = 0.0
+    output_size: int = 0
     message: str = ""
 
 
@@ -1387,6 +1438,211 @@ async def api_condense_transcribe(
     finally:
         if os.path.exists(input_path):
             os.unlink(input_path)
+
+
+# ============ 老视频修复 API ============
+
+@app.post("/api/restore", response_model=RestorationResponseModel)
+async def api_restore(
+    file: UploadFile = File(...),
+    preset: str = Form(default="basic"),
+    options: Optional[str] = Form(default=None),
+):
+    """
+    老视频修复接口
+
+    Args:
+        file: 视频文件
+        preset: 修复套餐 (basic/film/enhanced/custom)
+        options: JSON格式的修复选项（可选）
+
+    Returns:
+        修复结果
+    """
+    print(f"[RESTORE] 收到修复请求: preset={preset}, filename={file.filename}")
+    import uuid
+
+    # 保存上传的文件
+    suffix = ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        input_path = tmp.name
+
+    task_id = str(uuid.uuid4())[:8]
+    output_path = str(output_dir / f"restored_{task_id}.mp4")
+
+    try:
+        from video.restoration import (
+            RestorationPreset as RestPreset,
+            RestorationRequest,
+            RestorationOptions,
+            get_default_options_for_preset,
+        )
+        from video.restoration_pipeline import RestorationPipeline
+
+        # 解析套餐
+        preset_enum = RestPreset(preset) if preset in [p.value for p in RestPreset] else RestPreset.BASIC
+
+        # 解析选项
+        if options:
+            try:
+                opts_dict = json.loads(options)
+                rest_options = RestorationOptions(**opts_dict)
+            except Exception:
+                rest_options = get_default_options_for_preset(preset_enum)
+        else:
+            rest_options = get_default_options_for_preset(preset_enum)
+
+        # 构建请求
+        request = RestorationRequest(
+            input_path=input_path,
+            output_path=output_path,
+            preset=preset_enum,
+            options=rest_options,
+        )
+
+        # 执行修复（在线程池中执行，避免阻塞）
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: RestorationPipeline(request).run()
+        )
+
+        if result.success:
+            dl_filename = Path(result.output_path).name
+            print(f"[RESTORE] 修复成功: {dl_filename}, duration={result.total_duration:.1f}s")
+
+            # 套餐名称映射为中文
+            preset_names = {
+                "basic": "基础修复",
+                "film": "胶片修复",
+                "enhanced": "增强版",
+                "custom": "自定义",
+            }
+            preset_cn = preset_names.get(result.preset, result.preset)
+
+            return RestorationResponseModel(
+                success=True,
+                task_id=task_id,
+                input_path=result.input_path,
+                output_path=result.output_path,
+                download_url=f"/api/download/{dl_filename}",
+                preset=preset_cn,
+                stages=[RestorationStageModel(**s.__dict__) for s in result.stages],
+                total_duration=result.total_duration,
+                output_size=result.output_size,
+                message="修复完成",
+            )
+        else:
+            print(f"[RESTORE] 修复失败: {result.error}")
+            raise HTTPException(status_code=500, detail=result.error)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if os.path.exists(input_path):
+            os.unlink(input_path)
+
+
+@app.post("/api/restore-stream")
+async def api_restore_stream(
+    file: UploadFile = File(...),
+    preset: str = Form(default="basic"),
+    options: Optional[str] = Form(default=None),
+):
+    """
+    老视频修复接口（SSE流式）
+
+    使用 Server-Sent Events 流式返回进度
+
+    Args:
+        file: 视频文件
+        preset: 修复套餐
+        options: JSON格式的修复选项
+
+    Returns:
+        SSE事件流
+    """
+    import uuid
+
+    # 保存上传的文件
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        input_path = tmp.name
+
+    task_id = str(uuid.uuid4())[:8]
+    output_path = str(output_dir / f"restored_{task_id}_{Path(file.filename).stem}{suffix}")
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        yield f"data: {json.dumps({'event': 'start', 'progress': 0.0, 'message': '开始修复...'})}\n\n"
+
+        try:
+            from video.restoration import (
+                RestorationPreset as RestPreset,
+                RestorationOptions,
+                get_default_options_for_preset,
+            )
+            from video.restoration_pipeline import RestorationPipeline
+
+            # 解析套餐
+            preset_enum = RestPreset(preset) if preset in [p.value for p in RestPreset] else RestPreset.BASIC
+
+            # 解析选项
+            if options:
+                try:
+                    opts_dict = json.loads(options)
+                    rest_options = RestorationOptions(**opts_dict)
+                except Exception:
+                    rest_options = get_default_options_for_preset(preset_enum)
+            else:
+                rest_options = get_default_options_for_preset(preset_enum)
+
+            # 进度回调
+            progress_data = {"progress": 0.0, "stage": ""}
+
+            def progress_callback(stage: str, progress: float):
+                progress_data["stage"] = stage
+                progress_data["progress"] = progress
+
+            # 构建请求
+            request = RestorationRequest(
+                input_path=input_path,
+                output_path=output_path,
+                preset=preset_enum,
+                options=rest_options,
+                progress_callback=progress_callback,
+            )
+
+            # 执行修复（在线程池中）
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: RestorationPipeline(request).run()
+            )
+
+            if result.success:
+                yield f"data: {json.dumps({'event': 'complete', 'progress': 1.0, 'message': '修复完成', 'output_path': result.output_path})}\n\n"
+            else:
+                yield f"data: {json.dumps({'event': 'error', 'message': result.error})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+        finally:
+            if os.path.exists(input_path):
+                os.unlink(input_path)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ============ Main ============

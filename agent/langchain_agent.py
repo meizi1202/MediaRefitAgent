@@ -213,9 +213,10 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
 - 如果用户说"视频信息"、"查看视频"、"这个视频多大"、"时长" -> 返回 "info"
 - 如果用户说"修剪"、"裁剪"、"截取"、"剪掉"、"切割" -> 返回 "trim"
 - 如果用户说"拼接"、"合并"、"连接"、"concat"、"merge" -> 返回 "concat"
+- 如果用户说"修复"、"老视频"、"老电影"、"去噪"、"去闪烁"、"划痕"、"补帧"、"超分" -> 返回 "restore"
 - 如果无法判断 -> 返回 "null"
 
-只返回一个词：convert / compress / info / trim / concat / null"""
+只返回一个词：convert / compress / info / trim / concat / restore / null"""
 
     tool_messages = [{"role": "user", "content": tool_prompt}]
     tool_result = llm._generate(tool_messages)
@@ -348,6 +349,50 @@ response示例："好的，我来查看视频信息。" """
 2. 询问还需要什么
 示例："已识别到您想拼接视频。请上传至少2个视频文件，我会按选择顺序拼接。" """
 
+    elif target_feature == "restore":
+        json_example = '{{"preset_explicit": true/false, "preset": "basic/film/enhanced/custom/null", "denoise": true/false, "scratch": true/false, "flicker": true/false, "interpolate": true/false, "super_resolution": true/false, "response": "助手回复"}}'
+        param_prompt = f"""【任务】解析用户老视频修复需求
+
+【重要】你必须返回JSON格式，不要返回Markdown或其他格式！
+
+【视频信息】
+{video_info_text}
+
+【对话历史】（重要！请结合历史理解用户意图）
+{history_context}
+
+【当前输入】
+{user_input}
+
+---
+
+【套餐类型】
+- basic：基础修复（去噪、去抖动、色彩校正、对比度增强）
+- film：胶片修复（基础修复 + 划痕去除、闪烁修复）
+- enhanced：增强版（胶片修复 + 补帧、超分辨率）
+- custom：自定义（用户指定具体修复项）
+
+【修复选项】
+- denoise：去噪（去除画面噪点）
+- scratch：划痕修复（去除老胶片划痕）
+- flicker：闪烁修复（减少画面闪烁）
+- interpolate：补帧（提升流畅度）
+- super_resolution：超分辨率（提升清晰度）
+
+【解析规则】
+1. 查看对话历史，如果用户之前回答了某参数选择，则explicit=true
+2. 如果用户没有回答某问题，则explicit=false，字段值=null
+3. 如果用户只说"修复"、"老视频"、"老电影"，默认选择 film 套餐
+4. 如果用户明确提到"去噪"、"去划痕"、"补帧"等，则设置对应选项=true
+
+【输出格式】
+必须返回以下JSON结构，不要返回其他内容：
+{json_example}
+
+【示例响应】
+{{"preset_explicit": true, "preset": "film", "denoise": false, "scratch": true, "flicker": true, "interpolate": false, "super_resolution": false, "response": "已识别到您想修复老电影，使用胶片修复套餐去除划痕和闪烁。"}}
+  示例"已识别到您想修复老电影，请问选择哪个套餐？基础修复/胶片修复/增强版" """
+
     else:
         return {
             "target_feature": None,
@@ -423,6 +468,9 @@ response示例："好的，我来查看视频信息。" """
             # 拼接需要至少2个视频（file_count >= 2），由后端根据实际上传文件数量判断
             # LLM 只负责识别意图，file_count 由后端判断
             all_params_provided = parsed.get("concat_explicit", False)
+        elif target_feature == "restore":
+            # 修复只需要 preset_explicit=True 即可
+            all_params_provided = parsed.get("preset_explicit", False)
         else:
             all_params_provided = False
 
@@ -441,6 +489,16 @@ response示例："好的，我来查看视频信息。" """
             "compression_explicit": parsed.get("compression_explicit", False),
             "start_time_explicit": parsed.get("start_time_explicit", False),
             "end_time_explicit": parsed.get("end_time_explicit", False),
+            # restore 相关字段
+            "restoration_preset": parsed.get("preset"),
+            "restoration_options": {
+                "denoise": parsed.get("denoise", False),
+                "scratch": parsed.get("scratch", False),
+                "flicker": parsed.get("flicker", False),
+                "interpolate": parsed.get("interpolate", False),
+                "super_resolution": parsed.get("super_resolution", False),
+            },
+            "restoration_preset_explicit": parsed.get("preset_explicit", False),
             "response": parsed.get("response", ""),
             "all_params_provided": all_params_provided
         }
@@ -464,6 +522,9 @@ response示例："好的，我来查看视频信息。" """
             "compression_explicit": False,
             "start_time_explicit": False,
             "end_time_explicit": False,
+            "restoration_preset": None,
+            "restoration_options": {},
+            "restoration_preset_explicit": False,
             "response": f"解析出错：{str(e)}",
             "all_params_provided": False
         }
