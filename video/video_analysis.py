@@ -296,7 +296,7 @@ class PlatformAdapter:
     PLATFORMS = {
         "douyin": {
             "name": "抖音",
-            "aspect_ratios": [(9, 16), (3, 4)],  # 竖屏 9:16 或 3:4
+            "aspect_ratios": [(9, 16), (3, 4), (16, 9), (1, 1)],  # 支持竖屏、横屏、正方形
             "max_duration": 180,  # 秒
             "max_file_size": 4 * 1024 * 1024 * 1024,  # 4GB
             "recommended_resolution": (1080, 1920),

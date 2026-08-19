@@ -1035,9 +1035,7 @@
                     responseMsg += `\n场景：${result.scene}`;
                     responseMsg += `\n情绪：${result.emotion}`;
                     responseMsg += `\n平台：${(result.suitable_platforms || []).join(', ')}`;
-                }
-
-                if (result.message) {
+                } else if (result.message) {
                     responseMsg += `\n${result.message}`;
                 }
 
