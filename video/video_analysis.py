@@ -392,7 +392,15 @@ class PlatformAdapter:
             # 检查比例
             target_ratios = [r[0]/r[1] for r in settings["aspect_ratios"]]
             if not any(abs(aspect_ratio - r) < 0.1 for r in target_ratios):
-                issues.append(f"视频比例{aspect_ratio:.2f}不是平台推荐比例")
+                # 将小数比例转换为分数形式显示
+                def ratio_to_fraction(r):
+                    for i in range(1, 20):
+                        for j in range(1, 20):
+                            if abs(i/j - r) < 0.01:
+                                return f"{i}:{j}"
+                    return f"{r:.2f}"
+                current_ratio_str = ratio_to_fraction(aspect_ratio)
+                issues.append(f"视频比例{current_ratio_str}不是平台推荐比例")
                 # 找到最接近的推荐比例
                 closest_ratio = min(target_ratios, key=lambda r: abs(aspect_ratio - r))
                 ratio_str = f"{int(closest_ratio[0])}:{int(closest_ratio[1])}"
