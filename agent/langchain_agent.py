@@ -6,8 +6,8 @@ import json
 from typing import Optional
 
 # API配置
-API_URL = "https://api.minimax.chat/v1/text/chatcompletion_v2"
-MODEL_NAME = "MiniMax-M2.7"
+API_URL = os.environ.get("MINIMAX_API_URL", "https://api.minimax.chat/v1/text/chatcompletion_v2")
+MODEL_NAME = os.environ.get("MINIMAX_MODEL_NAME", "MiniMax-M2.7")
 
 # 全局变量控制
 LLM_INTENT_AVAILABLE = True
