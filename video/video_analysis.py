@@ -373,7 +373,7 @@ class PlatformAdapter:
                     "duration": duration,
                     "file_size_mb": file_size / 1024 / 1024,
                     "resolution": f"{width}x{height}",
-                    "aspect_ratio": f"{width}:{height} ({width//math.gcd(width,height)}:{height//math.gcd(width,height)})" if width and height else "1:1"
+                    "aspect_ratio": f"{width}x{height} ({width//math.gcd(width,height)}:{height//math.gcd(width,height)})" if width and height else "1:1"
                 },
                 "target_settings": {
                     "max_duration": settings["max_duration"],

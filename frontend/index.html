@@ -1732,6 +1732,17 @@
             div.innerHTML = html;
             area.appendChild(div);
             area.scrollTop = 9999;
+
+            // 保存到会话历史
+            if (currentSessionId) {
+                const session = sessions.find(s => s.session_id === currentSessionId);
+                if (session) {
+                    session.messages = session.messages || [];
+                    session.messages.push({ role, content, timestamp: new Date().toISOString(), data });
+                    saveSessionsToStorage();
+                }
+            }
+
             return div.id;
         }
 
