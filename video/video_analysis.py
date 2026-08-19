@@ -4,6 +4,7 @@
 深度分析视频内容：场景、人物、事件、情绪等
 """
 import os
+import math
 import base64
 import re
 from pathlib import Path
@@ -372,7 +373,7 @@ class PlatformAdapter:
                     "duration": duration,
                     "file_size_mb": file_size / 1024 / 1024,
                     "resolution": f"{width}x{height}",
-                    "aspect_ratio": f"{width}:{height}" if width and height else "1:1"
+                    "aspect_ratio": f"{width}:{height} ({width//math.gcd(width,height)}:{height//math.gcd(width,height)})" if width and height else "1:1"
                 },
                 "target_settings": {
                     "max_duration": settings["max_duration"],
