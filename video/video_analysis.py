@@ -393,7 +393,10 @@ class PlatformAdapter:
             target_ratios = [r[0]/r[1] for r in settings["aspect_ratios"]]
             if not any(abs(aspect_ratio - r) < 0.1 for r in target_ratios):
                 issues.append(f"视频比例{aspect_ratio:.2f}不是平台推荐比例")
-                recommendations.append(f"建议转换为 {settings['recommended_resolution'][0]}x{settings['recommended_resolution'][1]}")
+                # 找到最接近的推荐比例
+                closest_ratio = min(target_ratios, key=lambda r: abs(aspect_ratio - r))
+                ratio_str = f"{int(closest_ratio[0])}:{int(closest_ratio[1])}"
+                recommendations.append(f"建议转换为 {settings['recommended_resolution'][0]}x{settings['recommended_resolution'][1]} ({ratio_str})")
 
             return {
                 "compatible": len(issues) == 0,
@@ -409,6 +412,7 @@ class PlatformAdapter:
                     "max_duration": settings["max_duration"],
                     "max_file_size_gb": settings["max_file_size"] / 1024 / 1024 / 1024,
                     "recommended_resolution": f"{settings['recommended_resolution'][0]}x{settings['recommended_resolution'][1]}",
+                    "aspect_ratio": f"{int(settings['aspect_ratios'][0][0])}:{int(settings['aspect_ratios'][0][1])}",
                     "bitrate": settings["bitrate"] / 1000000
                 }
             }
