@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from typing import Optional, Literal
 
+from video.platforms import PLATFORM_SETTINGS
+
 
 class VideoAnalyzer:
     """视频内容分析器"""
@@ -292,54 +294,8 @@ class VideoAnalyzer:
 class PlatformAdapter:
     """平台适配器 - 输出不同平台的最佳格式"""
 
-    # 平台规格定义
-    PLATFORMS = {
-        "douyin": {
-            "name": "抖音",
-            "aspect_ratios": [(9, 16), (3, 4), (16, 9), (1, 1)],  # 支持竖屏、横屏、正方形
-            "max_duration": 180,  # 秒
-            "max_file_size": 4 * 1024 * 1024 * 1024,  # 4GB
-            "recommended_resolution": (1080, 1920),
-            "bitrate": 8000000,  # 8Mbps
-            "fps": 30,
-        },
-        "kuaishou": {
-            "name": "快手",
-            "aspect_ratios": [(9, 16), (16, 9)],
-            "max_duration": 300,
-            "max_file_size": 4 * 1024 * 1024 * 1024,
-            "recommended_resolution": (1080, 1920),
-            "bitrate": 6000000,
-            "fps": 30,
-        },
-        "bilibili": {
-            "name": "B站",
-            "aspect_ratios": [(16, 9), (9, 16), (1, 1)],
-            "max_duration": 600,  # 10分钟
-            "max_file_size": 4 * 1024 * 1024 * 1024,
-            "recommended_resolution": (1920, 1080),
-            "bitrate": 6000000,
-            "fps": 30,
-        },
-        "xiaohongshu": {
-            "name": "小红书",
-            "aspect_ratios": [(3, 4), (1, 1), (9, 16)],
-            "max_duration": 300,
-            "max_file_size": 2 * 1024 * 1024 * 1024,  # 2GB
-            "recommended_resolution": (1080, 1440),
-            "bitrate": 5000000,
-            "fps": 30,
-        },
-        "weixinshipin": {
-            "name": "微信视频号",
-            "aspect_ratios": [(16, 9), (9, 16), (1, 1)],
-            "max_duration": 600,
-            "max_file_size": 2 * 1024 * 1024 * 1024,
-            "recommended_resolution": (1080, 1920),
-            "bitrate": 5000000,
-            "fps": 30,
-        },
-    }
+    # 从公共模块导入平台配置
+    PLATFORMS = PLATFORM_SETTINGS
 
     @classmethod
     def get_recommended_settings(cls, platform: str) -> dict:
@@ -416,7 +372,7 @@ class PlatformAdapter:
                     "duration": duration,
                     "file_size_mb": file_size / 1024 / 1024,
                     "resolution": f"{width}x{height}",
-                    "aspect_ratio": aspect_ratio
+                    "aspect_ratio": f"{width}:{height}" if width and height else "1:1"
                 },
                 "target_settings": {
                     "max_duration": settings["max_duration"],

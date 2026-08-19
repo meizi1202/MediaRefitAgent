@@ -1023,6 +1023,10 @@
                     responseMsg += `\n封面：${result.download_url || result.cover_path}`;
                 } else if (result.compatible !== undefined) {
                     responseMsg = `${modeText}检查完成！\n`;
+                    // 显示当前视频比例
+                    if (result.current_settings?.aspect_ratio) {
+                        responseMsg += `当前视频比例: ${result.current_settings.aspect_ratio}\n`;
+                    }
                     if (result.compatible) {
                         responseMsg += '✓ 视频符合平台要求';
                     } else {
