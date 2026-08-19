@@ -1055,22 +1055,24 @@
 
             const downloadUrl = result.download_url
                 ? (result.download_url.startsWith('http') ? result.download_url : `${API_BASE}${result.download_url}`)
-                : `${API_BASE}/api/download/${encodeURIComponent(result.output_path.split(/[/\\]/).pop())}`;
+                : result.output_path
+                    ? `${API_BASE}/api/download/${encodeURIComponent(result.output_path.split(/[/\\]/).pop())}`
+                    : null;
 
             currentVideoData = result;
 
             content.innerHTML = `
                 <div class="video-container">
-                    <video class="video-player" controls playsinline>
+                    ${downloadUrl ? `<video class="video-player" controls playsinline>
                         <source src="${downloadUrl}" type="video/mp4">
                         您的浏览器不支持视频播放
-                    </video>
+                    </video>` : '<div class="no-video">暂无视频预览</div>'}
                     <div class="video-info">
-                        <div class="row"><span class="label">输出文件</span><span class="value">${(result.output_path || '').split(/[/\\]/).pop()}</span></div>
+                        <div class="row"><span class="label">输出文件</span><span class="value">${(result.output_path || '').split(/[/\\]/).pop() || '无'}</span></div>
                     </div>
-                    <div class="preview-actions">
+                    ${downloadUrl ? `<div class="preview-actions">
                         <button class="preview-btn download" onclick="downloadVideo()">⬇️ 下载</button>
-                    </div>
+                    </div>` : ''}
                 </div>
             `;
         }
