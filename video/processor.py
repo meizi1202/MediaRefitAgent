@@ -739,6 +739,182 @@ def concat_videos(
     return True
 
 
+def add_transition(
+    video_path: str,
+    output_path: str,
+    transition_type: str = "fade",
+    duration: float = 1.0,
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> dict:
+    """
+    为视频添加转场效果
+
+    使用 FFmpeg xfade 滤镜实现片段间的转场效果。
+    注意：此函数主要用于单视频添加片头片尾淡入淡出，或多视频拼接时的转场。
+    对于已有视频的片段间转场，需要先分割视频再拼接。
+
+    Args:
+        video_path: 输入文件路径
+        output_path: 输出文件路径
+        transition_type: 转场类型 (fade/slide/zoom/blur/rotate/dissolve)
+        duration: 转场时长（秒）
+        progress_callback: 进度回调
+
+    Returns:
+        dict: {"success": bool, "message": str}
+    """
+    # 获取视频时长
+    metadata = get_video_metadata(video_path)
+    total_duration = metadata.duration
+
+    # 构建 xfade 滤镜参数
+    xfade_transitions = {
+        "fade": "fade",
+        "slide": "slideright",
+        "zoom": "zoomin",
+        "blur": "hblur",
+        "rotate": "rotate",
+        "dissolve": "dissolve",
+    }
+
+    xfade_name = xfade_transitions.get(transition_type, "fade")
+
+    # 转场公式：offset = 片段时长 - 转场时长
+    # 对于片头淡入：start=0, duration
+    # 对于片尾淡出：start=total_duration - duration, duration
+    # 这里实现片头+片尾淡入淡出
+
+    if transition_type == "fade":
+        # 淡入淡出：片头 + duration，片尾 + duration
+        filter_str = (
+            f"fade=in:st=0:d={duration},"
+            f"fade=out:st={total_duration - duration}:d={duration}"
+        )
+    else:
+        # 其他转场效果使用固定滤镜
+        filter_str = f"xfade=transition={xfade_name}:duration={duration}:offset=0"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vf", filter_str,
+        "-af", f"afade=in:st=0:d={duration},afade=out:st={total_duration - duration}:d={duration}",
+        "-c:a", "aac",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+
+    if not success:
+        return {"success": False, "message": f"转场处理失败: {error}"}
+
+    # 获取输出文件大小
+    output_size = os.path.getsize(output_path)
+
+    return {
+        "success": True,
+        "message": f"转场效果添加完成",
+        "output_path": output_path,
+        "transition_type": transition_type,
+        "transition_duration": duration,
+        "duration": total_duration,
+        "output_size": output_size,
+    }
+
+
+def burn_subtitle(
+    video_path: str,
+    subtitle_path: str,
+    output_path: str,
+    style: str = "default",
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> bool:
+    """
+    将字幕烧录到视频中
+
+    Args:
+        video_path: 输入视频路径
+        subtitle_path: SRT 字幕文件路径
+        output_path: 输出视频路径
+        style: 字幕样式 (default/minimal/emoji)
+        progress_callback: 进度回调
+
+    Returns:
+        是否成功
+    """
+    # 字幕样式配置
+    if style == "minimal":
+        # 简洁样式：白色，小字号，底部居中
+        fontsize = 24
+        fontcolor = "white"
+        box = 0
+    elif style == "emoji":
+        # emoji 样式：支持 emoji 显示
+        fontsize = 28
+        fontcolor = "white"
+        box = 0
+    else:
+        # 默认样式：白色，中字号，底部居中，带背景
+        fontsize = 24
+        fontcolor = "white"
+        box = 1
+
+    # 使用 FFmpeg drawtext 滤镜烧录字幕
+    # Windows 上 FFmpeg 需要特殊路径格式：F\\:/path/to/file
+    def escape_path_for_ffmpeg(path):
+        """FFmpeg subtitles 滤镜路径转义（自动适配 Windows/Linux）
+
+        - Windows: 将反斜杠转为正斜杠，驱动器路径用双反斜杠转义冒号
+        - Linux: 直接返回原路径
+        """
+        import os
+        if os.name != 'nt':
+            return path
+
+        # Windows: 先将反斜杠转换为正斜杠
+        path = path.replace('\\', '/')
+        if len(path) >= 2 and path[1] == ':':
+            # 驱动器路径需要双反斜杠转义冒号
+            return path[0] + chr(92) * 2 + ':' + path[2:]
+        return path
+
+    escaped_subtitle_path = escape_path_for_ffmpeg(subtitle_path)
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vf", f"subtitles={escaped_subtitle_path}:force_style='FontSize={fontsize},PrimaryColour=&H00FFFFFF&,Outline=2,Shadow=1'",
+        "-c:a", "copy",
+        output_path,
+    ]
+
+    success, error = run_ffmpeg(cmd, progress_callback)
+
+    if not success:
+        # 如果 subtitles 滤镜失败，尝试直接用 ass 文件
+        ass_path = subtitle_path.replace(".srt", ".ass")
+        try:
+            # 简单的 srt -> ass 转换（实际可用工具）
+            import subprocess
+            subprocess.run([
+                "ffmpeg", "-y", "-i", subtitle_path, ass_path
+            ], capture_output=True)
+
+            if os.path.exists(ass_path):
+                escaped_ass_path = escape_path_for_ffmpeg(ass_path)
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-i", video_path,
+                    "-vf", f"ass={escaped_ass_path}",
+                    "-c:a", "copy",
+                    output_path,
+                ]
+                success, error = run_ffmpeg(cmd, progress_callback)
+        except Exception:
+            pass
+
+    return success
+
+
 def transform_video(
     input_path: str,
     output_path: str,

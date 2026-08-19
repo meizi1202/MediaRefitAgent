@@ -127,6 +127,24 @@ def _segments_to_srt(segments: list[dict]) -> str:
     return "\n".join(srt_lines)
 
 
+def escape_path_for_ffmpeg(path: str) -> str:
+    """FFmpeg subtitles 滤镜路径转义（自动适配 Windows/Linux）
+
+    - Windows: 将反斜杠转为正斜杠，驱动器路径用双反斜杠转义冒号
+    - Linux: 直接返回原路径
+    """
+    import os
+    if os.name != 'nt':
+        return path
+
+    # Windows: 先将反斜杠转换为正斜杠
+    path = path.replace('\\', '/')
+    if len(path) >= 2 and path[1] == ':':
+        # 驱动器路径需要双反斜杠转义冒号
+        return path[0] + chr(92) * 2 + ':' + path[2:]
+    return path
+
+
 def burn_subtitle(
     video_path: str,
     srt_path: str,
@@ -145,8 +163,11 @@ def burn_subtitle(
     Returns:
         是否成功
     """
+    # Windows 上 FFmpeg subtitles 滤镜需要特殊路径转义
+    escaped_srt_path = escape_path_for_ffmpeg(srt_path)
+
     # 构建字幕滤镜
-    subtitle_filter = f"subtitles={srt_path}"
+    subtitle_filter = f"subtitles={escaped_srt_path}"
 
     # 如果指定了字体，添加到滤波器
     if font_path and os.path.exists(font_path):

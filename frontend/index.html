@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MediaRefitAgent - 智能视频处理</title>
+    <script src="config.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f0f; color: #fff; height: 100vh; overflow: hidden; }
@@ -189,6 +190,7 @@
                 <button class="feature-tab" data-feature="concat" onclick="selectFeature('concat', event)">视频拼接</button>
                 <button class="feature-tab" data-feature="condense" onclick="selectFeature('condense', event)">智能缩编</button>
                 <button class="feature-tab" data-feature="restore" onclick="selectFeature('restore', event)">老视频修复</button>
+                <button class="feature-tab" data-feature="editor" onclick="selectFeature('editor', event)">智能剪辑</button>
                 <button class="feature-tab disabled" data-feature="format">视频格式转换</button>
                 <button class="feature-tab" data-feature="info" onclick="selectFeature('info', event)">视频信息获取</button>
             </div>
@@ -305,6 +307,113 @@
                 </div>
             </div>
 
+            <!-- 智能剪辑参数面板 -->
+            <div class="param-panel" id="paramPanel_editor">
+                <div class="param-section">
+                    <div class="param-label">剪辑模式</div>
+                    <div class="param-options">
+                        <button class="param-option active" data-editor-mode="highlight" onclick="selectEditorMode(this)">精彩片段</button>
+                        <button class="param-option" data-editor-mode="subtitle" onclick="selectEditorMode(this)">自动字幕</button>
+                        <button class="param-option" data-editor-mode="transition" onclick="selectEditorMode(this)">添加转场</button>
+                        <button class="param-option" data-editor-mode="bgm" onclick="selectEditorMode(this)">智能配乐</button>
+                        <button class="param-option" data-editor-mode="tts" onclick="selectEditorMode(this)">配音</button>
+                        <button class="param-option" data-editor-mode="filter" onclick="selectEditorMode(this)">滤镜</button>
+                        <button class="param-option" data-editor-mode="analyze" onclick="selectEditorMode(this)">内容分析</button>
+                        <button class="param-option" data-editor-mode="cover" onclick="selectEditorMode(this)">封面</button>
+                        <button class="param-option" data-editor-mode="title-package" onclick="selectEditorMode(this)">片头片尾</button>
+                    </div>
+                </div>
+                <div class="param-section">
+                    <div class="param-label">目标时长（秒）</div>
+                    <input type="number" id="editor_duration" class="param-input" placeholder="默认60秒" value="60" min="5" max="3600">
+                </div>
+                <div class="param-section">
+                    <div class="param-label">字幕样式</div>
+                    <div class="param-options">
+                        <button class="param-option active" data-subtitle-style="default" onclick="selectSubtitleStyle(this)">默认</button>
+                        <button class="param-option" data-subtitle-style="minimal" onclick="selectSubtitleStyle(this)">简洁</button>
+                    </div>
+                </div>
+                <div class="param-section">
+                    <div class="param-label">转场类型</div>
+                    <div class="param-options">
+                        <button class="param-option active" data-transition-type="fade" onclick="selectTransitionType(this)">淡入淡出</button>
+                        <button class="param-option" data-transition-type="slide" onclick="selectTransitionType(this)">滑动</button>
+                        <button class="param-option" data-transition-type="zoom" onclick="selectTransitionType(this)">缩放</button>
+                    </div>
+                </div>
+                <div class="param-section" id="bgmMoodSection" style="display: none;">
+                    <div class="param-label">音乐风格</div>
+                    <div class="param-options">
+                        <button class="param-option active" data-bgm-mood="auto" onclick="selectBGMMood(this)">自动</button>
+                        <button class="param-option" data-bgm-mood="happy" onclick="selectBGMMood(this)">欢快</button>
+                        <button class="param-option" data-bgm-mood="calm" onclick="selectBGMMood(this)">平静</button>
+                        <button class="param-option" data-bgm-mood="energetic" onclick="selectBGMMood(this)">动感</button>
+                    </div>
+                </div>
+                <div class="param-section" id="bgmVolumeSection" style="display: none;">
+                    <div class="param-label">BGM音量</div>
+                    <input type="range" id="bgmVolume" class="param-range" min="0" max="100" value="50">
+                    <span id="bgmVolumeValue">50%</span>
+                </div>
+                <!-- TTS配音参数 -->
+                <div class="param-section" id="ttsSection" style="display: none;">
+                    <div class="param-label">配音音色</div>
+                    <div class="param-options">
+                        <button class="param-option active" data-tts-voice="zh-CN-XiaoxiaoNeural" onclick="selectTTSVoice(this)">晓晓(女声)</button>
+                        <button class="param-option" data-tts-voice="zh-CN-YunxiNeural" onclick="selectTTSVoice(this)">云希(男声)</button>
+                    </div>
+                </div>
+                <div class="param-section" id="ttsTextSection" style="display: none;">
+                    <div class="param-label">配音文本</div>
+                    <textarea id="ttsText" class="param-textarea" placeholder="输入配音文本内容..." rows="3"></textarea>
+                </div>
+                <!-- 滤镜参数 -->
+                <div class="param-section" id="filterSection" style="display: none;">
+                    <div class="param-label">滤镜预设</div>
+                    <div class="param-options">
+                        <button class="param-option active" data-filter-preset="none" onclick="selectFilterPreset(this)">无</button>
+                        <button class="param-option" data-filter-preset="vintage" onclick="selectFilterPreset(this)">复古</button>
+                        <button class="param-option" data-filter-preset="cinematic" onclick="selectFilterPreset(this)">电影感</button>
+                        <button class="param-option" data-filter-preset="fresh" onclick="selectFilterPreset(this)">清新</button>
+                        <button class="param-option" data-filter-preset="bw" onclick="selectFilterPreset(this)">黑白</button>
+                        <button class="param-option" data-filter-preset="warm" onclick="selectFilterPreset(this)">暖色</button>
+                        <button class="param-option" data-filter-preset="cold" onclick="selectFilterPreset(this)">冷色</button>
+                    </div>
+                </div>
+                <!-- 封面参数 -->
+                <div class="param-section" id="coverSection" style="display: none;">
+                    <div class="param-label">封面选项</div>
+                    <div class="param-options">
+                        <button class="param-option active" data-cover-mode="single" onclick="selectCoverMode(this)">单张封面</button>
+                        <button class="param-option" data-cover-mode="candidates" onclick="selectCoverMode(this)">多张候选</button>
+                    </div>
+                </div>
+                <!-- 片头片尾参数 -->
+                <div class="param-section" id="titlePackageSection" style="display: none;">
+                    <div class="param-label">包装选项</div>
+                    <div class="param-options">
+                        <label class="param-checkbox"><input type="checkbox" id="addOpening" checked> 添加片头</label>
+                        <label class="param-checkbox"><input type="checkbox" id="addEnding"> 添加片尾</label>
+                        <label class="param-checkbox"><input type="checkbox" id="addWatermark"> 添加水印</label>
+                    </div>
+                </div>
+                <div class="param-section" id="watermarkTextSection" style="display: none;">
+                    <div class="param-label">水印文字</div>
+                    <input type="text" id="watermarkText" class="param-input" placeholder="输入水印文字" value="">
+                </div>
+                <!-- 平台检查参数 -->
+                <div class="param-section" id="platformSection" style="display: none;">
+                    <div class="param-label">目标平台</div>
+                    <div class="param-options">
+                        <button class="param-option active" data-platform="douyin" onclick="selectPlatform(this)">抖音</button>
+                        <button class="param-option" data-platform="kuaishou" onclick="selectPlatform(this)">快手</button>
+                        <button class="param-option" data-platform="bilibili" onclick="selectPlatform(this)">B站</button>
+                        <button class="param-option" data-platform="xiaohongshu" onclick="selectPlatform(this)">小红书</button>
+                    </div>
+                </div>
+            </div>
+
             <div class="input-area">
                 <div class="input-row">
                     <div class="file-btn">
@@ -337,7 +446,8 @@
     </div>
 
     <script>
-        const API_BASE = 'http://172.18.98.97:8000';
+        // 从 config.js 加载配置
+        const API_BASE = typeof CONFIG !== 'undefined' ? CONFIG.API_BASE : 'http://localhost:8004';
         let currentSessionId = null;
         let sessions = [];
         let currentFeature = 'orient';
@@ -686,6 +796,285 @@
             selectedRestorePreset = el.dataset.preset;
         }
 
+        // 智能剪辑相关函数
+        let selectedEditorMode = 'highlight';
+        let selectedSubtitleStyle = 'default';
+        let selectedTransitionType = 'fade';
+        let selectedBGMMood = 'auto';
+        let selectedBGMVolume = 50;
+        let selectedTTSVoice = 'zh-CN-Xiaoxiao';
+        let selectedFilterPreset = 'none';
+        let selectedCoverMode = 'single';
+        let selectedPlatform = 'douyin';
+
+        function selectEditorMode(el) {
+            document.querySelectorAll('#paramPanel_editor .param-option[data-editor-mode]').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedEditorMode = el.dataset.editorMode;
+
+            // 隐藏所有参数区块
+            const sections = ['bgmMoodSection', 'bgmVolumeSection', 'ttsSection', 'ttsTextSection',
+                            'filterSection', 'coverSection', 'titlePackageSection', 'watermarkTextSection', 'platformSection'];
+            sections.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+
+            // 获取基础参数区块的显示状态
+            const durationSection = document.querySelector('#paramPanel_editor .param-section:nth-child(2)');
+            const subtitleStyleSection = document.querySelector('#paramPanel_editor .param-section:nth-child(3)');
+            const transitionTypeSection = document.querySelector('#paramPanel_editor .param-section:nth-child(4)');
+
+            // 默认隐藏所有基础参数区块
+            if (durationSection) durationSection.style.display = 'none';
+            if (subtitleStyleSection) subtitleStyleSection.style.display = 'none';
+            if (transitionTypeSection) transitionTypeSection.style.display = 'none';
+
+            // 根据模式显示相关选项
+            if (selectedEditorMode === 'highlight') {
+                // highlight: 显示目标时长、字幕样式、转场类型
+                if (durationSection) durationSection.style.display = 'block';
+                if (subtitleStyleSection) subtitleStyleSection.style.display = 'block';
+                if (transitionTypeSection) transitionTypeSection.style.display = 'block';
+            } else if (selectedEditorMode === 'subtitle') {
+                // subtitle: 只显示字幕样式
+                if (subtitleStyleSection) subtitleStyleSection.style.display = 'block';
+            } else if (selectedEditorMode === 'transition') {
+                // transition: 只显示转场类型
+                if (transitionTypeSection) transitionTypeSection.style.display = 'block';
+            } else if (selectedEditorMode === 'bgm') {
+                document.getElementById('bgmMoodSection').style.display = 'block';
+                document.getElementById('bgmVolumeSection').style.display = 'block';
+            } else if (selectedEditorMode === 'tts') {
+                document.getElementById('ttsSection').style.display = 'block';
+                document.getElementById('ttsTextSection').style.display = 'block';
+            } else if (selectedEditorMode === 'filter') {
+                document.getElementById('filterSection').style.display = 'block';
+            } else if (selectedEditorMode === 'cover') {
+                document.getElementById('coverSection').style.display = 'block';
+            } else if (selectedEditorMode === 'title-package') {
+                document.getElementById('titlePackageSection').style.display = 'block';
+                document.getElementById('watermarkTextSection').style.display = 'block';
+            } else if (selectedEditorMode === 'analyze') {
+                document.getElementById('platformSection').style.display = 'block';
+            }
+        }
+
+        function selectSubtitleStyle(el) {
+            document.querySelectorAll('#paramPanel_editor .param-option[data-subtitle-style]').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedSubtitleStyle = el.dataset.subtitleStyle;
+        }
+
+        function selectTransitionType(el) {
+            document.querySelectorAll('#paramPanel_editor .param-option[data-transition-type]').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedTransitionType = el.dataset.transitionType;
+        }
+
+        function selectBGMMood(el) {
+            document.querySelectorAll('#paramPanel_editor .param-option[data-bgm-mood]').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedBGMMood = el.dataset.bgmMood;
+        }
+
+        function selectTTSVoice(el) {
+            document.querySelectorAll('#paramPanel_editor .param-option[data-tts-voice]').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedTTSVoice = el.dataset.ttsVoice;
+        }
+
+        function selectFilterPreset(el) {
+            document.querySelectorAll('#paramPanel_editor .param-option[data-filter-preset]').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedFilterPreset = el.dataset.filterPreset;
+        }
+
+        function selectCoverMode(el) {
+            document.querySelectorAll('#paramPanel_editor .param-option[data-cover-mode]').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedCoverMode = el.dataset.coverMode;
+        }
+
+        function selectPlatform(el) {
+            document.querySelectorAll('#paramPanel_editor .param-option[data-platform]').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedPlatform = el.dataset.platform;
+        }
+
+        // 初始化BGM音量滑块
+        document.addEventListener('DOMContentLoaded', function() {
+            const bgmVolumeSlider = document.getElementById('bgmVolume');
+            if (bgmVolumeSlider) {
+                bgmVolumeSlider.addEventListener('input', function() {
+                    selectedBGMVolume = parseInt(this.value);
+                    const volumeValue = document.getElementById('bgmVolumeValue');
+                    if (volumeValue) volumeValue.textContent = this.value + '%';
+                });
+            }
+        });
+
+        async function callEditorAPI(formData, message) {
+            const editorTabActive = document.querySelector('.feature-tab[data-feature="editor"]')?.classList.contains('active');
+            if (!editorTabActive && currentFeature !== 'editor') {
+                addMessage('assistant', '请先选择"智能剪辑"功能');
+                hideAssistantTyping();
+                return;
+            }
+
+            const editorModes = {
+                highlight: '精彩片段', subtitle: '自动字幕', transition: '添加转场', bgm: '智能配乐',
+                tts: '配音', filter: '滤镜', analyze: '内容分析', cover: '封面生成', 'title-package': '片头片尾'
+            };
+            const modeText = editorModes[selectedEditorMode] || '智能剪辑';
+
+            // 值到中文的映射
+            const subtitleStyleNames = { default: '默认', minimal: '简洁' };
+            const transitionTypeNames = { fade: '淡入淡出', slide: '滑动', zoom: '缩放' };
+            const bgmMoodNames = { auto: '自动', happy: '欢快', calm: '平静', energetic: '动感' };
+
+            if (selectedEditorMode === 'highlight') {
+                const duration = document.getElementById('editor_duration')?.value || 60;
+                // 始终使用带完整参数的消息（中文值）
+                formData.append('message', `提取精彩片段，目标时长${duration}秒，字幕样式=${subtitleStyleNames[selectedSubtitleStyle] || selectedSubtitleStyle}，转场类型=${transitionTypeNames[selectedTransitionType] || selectedTransitionType}`);
+                formData.append('target_duration', parseInt(duration));
+                formData.append('subtitle_style', selectedSubtitleStyle);
+                formData.append('transition_type', selectedTransitionType);
+            } else if (selectedEditorMode === 'subtitle') {
+                formData.append('message', `生成字幕，字幕样式=${subtitleStyleNames[selectedSubtitleStyle] || selectedSubtitleStyle}`);
+                formData.append('style', selectedSubtitleStyle);
+            } else if (selectedEditorMode === 'transition') {
+                formData.append('message', `添加${transitionTypeNames[selectedTransitionType] || selectedTransitionType}转场`);
+                formData.append('transition_type', selectedTransitionType);
+            } else if (selectedEditorMode === 'bgm') {
+                formData.append('message', `智能配乐，音乐风格=${bgmMoodNames[selectedBGMMood] || selectedBGMMood}，BGM音量=${selectedBGMVolume}%`);
+                formData.append('mood', selectedBGMMood);
+                formData.append('bgm_volume', selectedBGMVolume / 100);
+                formData.append('video_volume', 0.3);
+                formData.append('fade_out', true);
+                formData.append('fade_duration', 3.0);
+            } else if (selectedEditorMode === 'tts') {
+                const ttsText = document.getElementById('ttsText')?.value || '';
+                formData.append('message', `配音：${ttsText}`);
+                formData.append('text', ttsText);
+                formData.append('voice', selectedTTSVoice);
+                formData.append('tts_volume', 1.0);
+                formData.append('original_volume', 0.3);
+            } else if (selectedEditorMode === 'filter') {
+                formData.append('message', `应用${selectedFilterPreset}滤镜`);
+                formData.append('preset', selectedFilterPreset);
+                formData.append('audio_volume', 1.0);
+            } else if (selectedEditorMode === 'analyze') {
+                formData.append('message', `分析视频内容`);
+                formData.append('use_api', 'true');
+                // 使用 platform-check API
+                formData.append('platform', selectedPlatform);
+            } else if (selectedEditorMode === 'cover') {
+                formData.append('message', `生成封面`);
+                formData.append('extract_candidates', selectedCoverMode === 'candidates');
+            } else if (selectedEditorMode === 'title-package') {
+                const addOpening = document.getElementById('addOpening')?.checked ? '是' : '否';
+                const addEnding = document.getElementById('addEnding')?.checked ? '是' : '否';
+                const addWatermark = document.getElementById('addWatermark')?.checked ? '是' : '否';
+                formData.append('message', `片头片尾包装（片头：${addOpening}，片尾：${addEnding}，水印：${addWatermark}）`);
+                formData.append('add_opening', document.getElementById('addOpening')?.checked ? 'true' : 'false');
+                formData.append('add_ending', document.getElementById('addEnding')?.checked ? 'true' : 'false');
+                formData.append('add_watermark', document.getElementById('addWatermark')?.checked ? 'true' : 'false');
+                formData.append('watermark_text', document.getElementById('watermarkText')?.value || '');
+            }
+
+            // 确定API端点
+            let apiEndpoint = `${API_BASE}/api/editor/` + selectedEditorMode;
+            if (selectedEditorMode === 'analyze') {
+                apiEndpoint = `${API_BASE}/api/editor/platform-check`;
+            } else if (selectedEditorMode === 'title-package') {
+                apiEndpoint = `${API_BASE}/api/editor/title-package`;
+            } else if (selectedEditorMode === 'cover') {
+                apiEndpoint = `${API_BASE}/api/editor/cover`;
+            }
+
+            try {
+                const response = await fetch(apiEndpoint, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                hideAssistantTyping();
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    addMessage('assistant', `处理失败：${errorText}`);
+                    return;
+                }
+
+                const result = await response.json();
+                let responseMsg = `${modeText}完成！`;
+
+                if (result.download_url) {
+                    const fullUrl = result.download_url.startsWith('http') ? result.download_url : `${API_BASE}${result.download_url}`;
+                    responseMsg += `\n下载链接：${fullUrl}`;
+                } else if (result.output_path) {
+                    responseMsg += `\n输出文件：${result.output_path}`;
+                } else if (result.subtitle_path) {
+                    responseMsg += `\n字幕文件：${result.subtitle_path}`;
+                } else if (result.transitioned) {
+                    responseMsg += `\n已添加${selectedTransitionType}转场效果`;
+                } else if (result.cover_path) {
+                    responseMsg += `\n封面：${result.download_url || result.cover_path}`;
+                } else if (result.compatible !== undefined) {
+                    responseMsg = `${modeText}检查完成！\n`;
+                    if (result.compatible) {
+                        responseMsg += '✓ 视频符合平台要求';
+                    } else {
+                        responseMsg += '✗ 存在以下问题：\n' + (result.issues || []).join('\n');
+                    }
+                    if (result.recommendations?.length) {
+                        responseMsg += '\n建议：\n' + result.recommendations.join('\n');
+                    }
+                } else if (result.scene) {
+                    responseMsg += `\n场景：${result.scene}`;
+                    responseMsg += `\n情绪：${result.emotion}`;
+                    responseMsg += `\n平台：${(result.suitable_platforms || []).join(', ')}`;
+                }
+
+                if (result.message) {
+                    responseMsg += `\n${result.message}`;
+                }
+
+                addMessage('assistant', responseMsg);
+                updatePreviewForEditor(result);
+            } catch (error) {
+                hideAssistantTyping();
+                addMessage('assistant', `请求出错：${error.message}`);
+            }
+        }
+
+        function updatePreviewForEditor(result) {
+            const content = document.getElementById('previewContent');
+            if (!content) return;
+
+            const downloadUrl = result.download_url
+                ? (result.download_url.startsWith('http') ? result.download_url : `${API_BASE}${result.download_url}`)
+                : `${API_BASE}/api/download/${encodeURIComponent(result.output_path.split(/[/\\]/).pop())}`;
+
+            currentVideoData = result;
+
+            content.innerHTML = `
+                <div class="video-container">
+                    <video class="video-player" controls playsinline>
+                        <source src="${downloadUrl}" type="video/mp4">
+                        您的浏览器不支持视频播放
+                    </video>
+                    <div class="video-info">
+                        <div class="row"><span class="label">输出文件</span><span class="value">${(result.output_path || '').split(/[/\\]/).pop()}</span></div>
+                    </div>
+                    <div class="preview-actions">
+                        <button class="preview-btn download" onclick="downloadVideo()">⬇️ 下载</button>
+                    </div>
+                </div>
+            `;
+        }
+
         // 发送消息
         async function sendMessage() {
             const input = document.getElementById('messageInput');
@@ -711,19 +1100,20 @@
             const compressTabActive = document.querySelector('.feature-tab[data-feature="compress"]')?.classList.contains('active');
             const trimTabActive = document.querySelector('.feature-tab[data-feature="trim"]')?.classList.contains('active');
             const restoreTabActive = document.querySelector('.feature-tab[data-feature="restore"]')?.classList.contains('active');
+            const editorTabActive = document.querySelector('.feature-tab[data-feature="editor"]')?.classList.contains('active');
 
             if (message && compressTabActive && currentFeature === 'compress' && selectedCompression) {
                 const levelNames = { low: '低', medium: '中', high: '高' };
-                fullMessage = `${message} [用户已选择参数：压缩级别=${levelNames[selectedCompression]}]`;
+                fullMessage = `${message} [压缩级别=${levelNames[selectedCompression]}]`;
             } else if (message && trimTabActive && currentFeature === 'trim') {
                 // 视频修剪不拼接其他功能的参数，fullMessage 保持原样
                 fullMessage = message;
             } else if (message && orientTabActive && currentFeature === 'orient' && selectedOrientation && selectedStrategy && !isCompressionMessage) {
                 const strategyNames = { pad: '填充黑边', crop: '中心裁剪', pan_scroll: '平移运镜', smart_crop: '智能裁剪', stretch: '拉伸填充', mirror_scroll: '镜像滚动' };
-                fullMessage = `${message} [用户已选择参数：目标方向=${selectedOrientationText}，转换策略=${strategyNames[selectedStrategy]}]`;
+                fullMessage = `${message} [目标方向=${selectedOrientationText}，转换策略=${strategyNames[selectedStrategy]}]`;
             } else if (message && currentFeature === 'restore' && selectedRestorePreset) {
                 const presetNames = { basic: '基础修复', film: '胶片修复', enhanced: '增强版' };
-                fullMessage = `${message} [用户已选择参数：修复套餐=${presetNames[selectedRestorePreset]}]`;
+                fullMessage = `${message} [修复套餐=${presetNames[selectedRestorePreset]}]`;
                 // 先显示消息
                 addMessage('user', fullMessage);
                 input.value = '';
@@ -737,6 +1127,33 @@
                 restoreFormData.append('message', fullMessage);
                 callRestoreAPI(restoreFormData, selectedRestorePreset);
                 return;
+            } else if (editorTabActive && currentFeature === 'editor') {
+                // 智能剪辑：拼接选中参数到消息
+                const editorModes = {
+                    highlight: '精彩片段', subtitle: '自动字幕', transition: '添加转场', bgm: '智能配乐',
+                    tts: '配音', filter: '滤镜', analyze: '内容分析', cover: '封面生成', 'title-package': '片头片尾'
+                };
+                const subtitleStyleNames = { default: '默认', minimal: '简洁' };
+                const transitionTypeNames = { fade: '淡入淡出', slide: '滑动', zoom: '缩放' };
+                const bgmMoodNames = { auto: '自动', happy: '欢快', calm: '平静', energetic: '动感' };
+
+                const modeText = editorModes[selectedEditorMode] || '智能剪辑';
+                let params = `编辑器模式=${modeText}`;
+                if (selectedEditorMode === 'highlight') {
+                    const duration = document.getElementById('editor_duration')?.value || 60;
+                    params += `，目标时长=${duration}秒`;
+                    params += `，字幕样式=${subtitleStyleNames[selectedSubtitleStyle] || selectedSubtitleStyle}`;
+                    params += `，转场类型=${transitionTypeNames[selectedTransitionType] || selectedTransitionType}`;
+                } else if (selectedEditorMode === 'subtitle') {
+                    params += `，字幕样式=${subtitleStyleNames[selectedSubtitleStyle] || selectedSubtitleStyle}`;
+                } else if (selectedEditorMode === 'transition') {
+                    params += `，转场类型=${transitionTypeNames[selectedTransitionType] || selectedTransitionType}`;
+                } else if (selectedEditorMode === 'bgm') {
+                    params += `，音乐风格=${bgmMoodNames[selectedBGMMood] || selectedBGMMood}`;
+                } else if (selectedEditorMode === 'filter') {
+                    params += `，滤镜预设=${selectedFilterPreset}`;
+                }
+                fullMessage = `${message || '智能剪辑'} [${params}]`;
             }
 
             const emptyState = document.getElementById('emptyState');
@@ -773,6 +1190,11 @@
                 if (currentFeature === 'condense') {
                     formData.append('message', fullMessage);
                     callCondenseAPI(formData, fullMessage);
+                    return;
+                }
+                if (currentFeature === 'editor' || editorTabActive) {
+                    formData.append('message', fullMessage);
+                    callEditorAPI(formData, fullMessage);
                     return;
                 }
                 if (isCondenseMessage) {
@@ -823,7 +1245,7 @@
             }
 
             // 没有消息，根据当前选中的功能生成指令
-            const featureNames = { orient: '横竖屏转换', compress: '视频压缩', cut: '视频裁剪', condense: '智能缩编', format: '视频格式转换', info: '视频信息获取' };
+            const featureNames = { orient: '横竖屏转换', compress: '视频压缩', cut: '视频裁剪', condense: '智能缩编', editor: '智能剪辑', format: '视频格式转换', info: '视频信息获取' };
 
             if (currentFeature === 'compress') {
                 // 视频压缩直接调用 compress API
@@ -840,6 +1262,10 @@
             } else if (currentFeature === 'condense') {
                 // 智能缩编调用缩编 API
                 callCondenseAPI(formData, '智能缩编');
+                return;
+            } else if (currentFeature === 'editor') {
+                // 智能剪辑调用编辑 API
+                callEditorAPI(formData, '智能剪辑');
                 return;
             } else if (currentFeature === 'restore') {
                 // 老视频修复调用修复 API

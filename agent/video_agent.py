@@ -102,6 +102,17 @@ class VideoAgentState(TypedDict):
     concat_explicit: bool
     # 修剪结果
     trim_result: Optional[dict]
+    # ========== 智能剪辑参数 ==========
+    # highlight 参数
+    target_duration: Optional[int]  # 目标时长（秒）
+    target_duration_explicit: bool
+    num_clips: Optional[int]  # 片段数量
+    num_clips_explicit: bool
+    # transition 参数
+    transition_type: Optional[str]  # fade/slide/zoom/blur/rotate/dissolve
+    transition_type_explicit: bool
+    transition_duration: Optional[float]  # 转场时长（秒）
+    transition_duration_explicit: bool
 
 
 # ============ Intent Parser ============
@@ -320,6 +331,16 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             strategy_explicit = parsed.get("strategy_explicit", False)
             ratio = parsed.get("target_ratio")
             ratio_explicit = parsed.get("ratio_explicit", False)
+            # highlight 参数
+            target_duration = parsed.get("target_duration", 60)
+            target_duration_explicit = parsed.get("target_duration_explicit", False)
+            num_clips = parsed.get("num_clips", 5)
+            num_clips_explicit = parsed.get("num_clips_explicit", False)
+            # transition 参数
+            transition_type = parsed.get("transition_type", "fade")
+            transition_type_explicit = parsed.get("transition_type_explicit", False)
+            transition_duration = parsed.get("transition_duration", 1.0)
+            transition_duration_explicit = parsed.get("transition_duration_explicit", False)
             llm_response = parsed.get("response", "")
             all_params_provided = parsed.get("all_params_provided", False)
 
@@ -822,6 +843,16 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
             start_time_explicit = parsed.get("start_time_explicit", False)
             end_time = parsed.get("end_time")
             end_time_explicit = parsed.get("end_time_explicit", False)
+            # highlight 参数
+            target_duration = parsed.get("target_duration", 60)
+            target_duration_explicit = parsed.get("target_duration_explicit", False)
+            num_clips = parsed.get("num_clips", 5)
+            num_clips_explicit = parsed.get("num_clips_explicit", False)
+            # transition 参数
+            transition_type = parsed.get("transition_type", "fade")
+            transition_type_explicit = parsed.get("transition_type_explicit", False)
+            transition_duration = parsed.get("transition_duration", 1.0)
+            transition_duration_explicit = parsed.get("transition_duration_explicit", False)
             llm_response = parsed.get("response", "")
             all_params_provided = parsed.get("all_params_provided", False)
 

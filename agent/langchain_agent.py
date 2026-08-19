@@ -214,9 +214,11 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
 - 如果用户说"修剪"、"裁剪"、"截取"、"剪掉"、"切割" -> 返回 "trim"
 - 如果用户说"拼接"、"合并"、"连接"、"concat"、"merge" -> 返回 "concat"
 - 如果用户说"修复"、"老视频"、"老电影"、"去噪"、"去闪烁"、"划痕"、"补帧"、"超分" -> 返回 "restore"
+- 如果用户说"精彩片段"、"高光时刻"、"提取片段"、"精华"、"highlight" -> 返回 "highlight"
+- 如果用户说"转场"、"过渡效果"、"添加转场" -> 返回 "transition"
 - 如果无法判断 -> 返回 "null"
 
-只返回一个词：convert / compress / info / trim / concat / restore / null"""
+只返回一个词：convert / compress / info / trim / concat / restore / highlight / transition / null"""
 
     tool_messages = [{"role": "user", "content": tool_prompt}]
     tool_result = llm._generate(tool_messages)
@@ -393,6 +395,81 @@ response示例："好的，我来查看视频信息。" """
 {{"preset_explicit": true, "preset": "film", "denoise": false, "scratch": true, "flicker": true, "interpolate": false, "super_resolution": false, "response": "已识别到您想修复老电影，使用胶片修复套餐去除划痕和闪烁。"}}
   示例"已识别到您想修复老电影，请问选择哪个套餐？基础修复/胶片修复/增强版" """
 
+    elif target_feature == "highlight":
+        json_example = '{{"target_duration_explicit": true/false, "target_duration": 60, "num_clips_explicit": true/false, "num_clips": 5, "response": "助手回复"}}'
+        param_prompt = f"""【任务】解析用户精彩片段提取需求
+
+【重要】你必须返回JSON格式，不要返回Markdown或其他格式！
+
+【视频信息】
+{video_info_text}
+
+【对话历史】（重要！请结合历史理解用户意图）
+{history_context}
+
+【当前输入】
+{user_input}
+
+---
+
+【参数说明】
+- target_duration: 目标时长（秒），如 60 表示一分钟精彩集锦，默认60
+- num_clips: 片段数量，默认5个
+
+【解析规则】
+1. 如果用户提到具体时长（如"60秒"、"1分钟"、"90秒"），则 explicit=true
+2. 如果用户提到片段数量（如"5个"、"10个"），则 explicit=true
+3. 如果用户没有指定，则使用默认值
+
+【输出格式】
+必须返回以下JSON结构，不要返回其他内容：
+{json_example}
+
+【示例响应】
+{{"target_duration_explicit": true, "target_duration": 60, "num_clips_explicit": false, "num_clips": 5, "response": "好的，我提取这场演唱会的精彩片段，总时长60秒。"}}
+  或示例"已识别到您想提取精彩片段，请问需要多长时间的？（默认60秒）" """
+
+    elif target_feature == "transition":
+        json_example = '{{"transition_type_explicit": true/false, "transition_type": "fade/slide/zoom/blur/rotate/dissolve/null", "transition_duration_explicit": true/false, "transition_duration": 1.0, "response": "助手回复"}}'
+        param_prompt = f"""【任务】解析用户添加转场效果需求
+
+【重要】你必须返回JSON格式，不要返回Markdown或其他格式！
+
+【视频信息】
+{video_info_text}
+
+【对话历史】（重要！请结合历史理解用户意图）
+{history_context}
+
+【当前输入】
+{user_input}
+
+---
+
+【转场类型】
+- fade: 淡入淡出，适合情绪过渡、场景转换
+- slide: 滑动，适合平行叙事、对比
+- zoom: 缩放，适合强调主体、节奏变化
+- blur: 模糊，适合焦点转换
+- rotate: 旋转，适合场景切换
+- dissolve: 溶解，适合柔和过渡
+
+【参数说明】
+- transition_type: 转场类型，如果用户没有指定则默认 fade
+- transition_duration: 转场时长（秒），默认1.0秒
+
+【解析规则】
+1. 如果用户提到具体转场类型（如"淡入淡出"、"滑动"），则 explicit=true
+2. 如果用户提到时长（如"2秒"、"1秒"），则 explicit=true
+
+【输出格式】
+必须返回以下JSON结构，不要返回其他内容：
+{json_example}
+
+【示例响应】
+{{"transition_type_explicit": true, "transition_type": "fade", "transition_duration_explicit": false, "transition_duration": 1.0, "response": "好的，我为视频添加淡入淡出转场效果。"}}
+  或示例"已识别到您想添加转场，请问要什么类型？淡入淡出/滑动/缩放" """
+
     else:
         return {
             "target_feature": None,
@@ -471,6 +548,12 @@ response示例："好的，我来查看视频信息。" """
         elif target_feature == "restore":
             # 修复只需要 preset_explicit=True 即可
             all_params_provided = parsed.get("preset_explicit", False)
+        elif target_feature == "highlight":
+            # 精彩片段：参数可选，有默认值
+            all_params_provided = True
+        elif target_feature == "transition":
+            # 转场：参数可选，有默认值
+            all_params_provided = True
         else:
             all_params_provided = False
 
@@ -499,6 +582,16 @@ response示例："好的，我来查看视频信息。" """
                 "super_resolution": parsed.get("super_resolution", False),
             },
             "restoration_preset_explicit": parsed.get("preset_explicit", False),
+            # highlight 相关字段
+            "target_duration": parsed.get("target_duration", 60),
+            "target_duration_explicit": parsed.get("target_duration_explicit", False),
+            "num_clips": parsed.get("num_clips", 5),
+            "num_clips_explicit": parsed.get("num_clips_explicit", False),
+            # transition 相关字段
+            "transition_type": parsed.get("transition_type", "fade"),
+            "transition_type_explicit": parsed.get("transition_type_explicit", False),
+            "transition_duration": parsed.get("transition_duration", 1.0),
+            "transition_duration_explicit": parsed.get("transition_duration_explicit", False),
             "response": parsed.get("response", ""),
             "all_params_provided": all_params_provided
         }
@@ -525,6 +618,16 @@ response示例："好的，我来查看视频信息。" """
             "restoration_preset": None,
             "restoration_options": {},
             "restoration_preset_explicit": False,
+            # highlight 相关字段
+            "target_duration": 60,
+            "target_duration_explicit": False,
+            "num_clips": 5,
+            "num_clips_explicit": False,
+            # transition 相关字段
+            "transition_type": "fade",
+            "transition_type_explicit": False,
+            "transition_duration": 1.0,
+            "transition_duration_explicit": False,
             "response": f"解析出错：{str(e)}",
             "all_params_provided": False
         }

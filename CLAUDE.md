@@ -65,17 +65,71 @@ pip install -r requirements.txt
 **可选依赖**：
 - ultralytics（YOLO，用于智能裁剪）：`pip install ultralytics`
 
-### 2. 启动 API 服务
+### 2. 配置文件
+
+项目使用 `.env` 文件进行配置。在项目根目录创建或修改 `.env` 文件：
+
+```env
+# =================== 服务配置 ===================
+# API 服务端口
+API_PORT=8004
+
+# 输出目录（视频输出位置）
+OUTPUT_DIR=F:/video
+
+# =================== FFmpeg 配置 ===================
+# FFmpeg bin 目录路径
+FFMPEG_PATH=C:/ffmpeg/ffmpeg-9.0-essentials_build/bin
+
+# =================== MiniMax API ===================
+# MiniMax API Key（用于大模型对话）
+MINIMAX_API_KEY=your_api_key_here
+MINIMAX_API_BASE=https://api.minimax.chat/v1
+
+# =================== BGM 音乐库 ===================
+# 音乐库目录（用于智能配乐功能）
+MUSIC_LIBRARY_DIR=F:/video/bgm
+```
+
+**配置说明：**
+
+| 配置项 | 必填 | 说明 |
+|--------|------|------|
+| `API_PORT` | 否 | API 服务端口，默认 8000 |
+| `OUTPUT_DIR` | 否 | 视频输出目录，默认 `F:/video` |
+| `FFMPEG_PATH` | 是 | FFmpeg bin 目录，需确保 ffmpeg.exe 在此目录下 |
+| `MINIMAX_API_KEY` | 是 | MiniMax API 密钥，用于大模型意图识别 |
+| `MUSIC_LIBRARY_DIR` | 否 | BGM 音乐库目录，智能配乐功能需要 |
+
+**BGM 音乐库配置：**
+- 将音乐文件放入配置的目录（如 `F:/video/bgm`）
+- 支持格式：`.mp3`, `.wav`, `.flac`, `.aac`, `.m4a`, `.ogg`
+- 文件名需包含情绪关键词进行自动分类：
+  - `happy/欢快/愉快` → happy（欢快）
+  - `sad/忧伤/悲伤` → sad（悲伤）
+  - `energetic/力量/动感` → energetic（动感）
+  - `calm/安静/舒缓` → calm（平静）
+  - `epic/史诗/大气` → epic（史诗）
+  - `corporate/商务` → corporate（商务）
+
+**示例文件名：**
+```
+happy_summer.mp3        → happy 风格
+calm_rain_piano.wav     → calm 风格
+epic_trailer.flac       → epic 风格
+```
+
+### 3. 启动 API 服务
 
 ```bash
 python -m api.fastapi_app
-# 或
-uvicorn api.fastapi_app:app --host 0.0.0.0 --port 8000
+# 或（使用 .env 中的端口配置）
+uvicorn api.fastapi_app:app --host 0.0.0.0 --port 8004
 ```
 
-服务启动后访问 http://localhost:8000/docs 查看 API 文档。
+服务启动后访问 http://localhost:8004/docs 查看 API 文档。
 
-### 3. 使用 CLI
+### 4. 使用 CLI
 
 ```bash
 # 单轮对话
