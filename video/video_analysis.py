@@ -403,7 +403,9 @@ class PlatformAdapter:
                 issues.append(f"视频比例{current_ratio_str}不是平台推荐比例")
                 # 找到最接近的推荐比例
                 closest_ratio = min(target_ratios, key=lambda r: abs(aspect_ratio - r))
-                ratio_str = f"{int(closest_ratio[0])}:{int(closest_ratio[1])}"
+                # 找到对应的原始比例元组
+                idx = target_ratios.index(closest_ratio)
+                ratio_str = f"{int(settings['aspect_ratios'][idx][0])}:{int(settings['aspect_ratios'][idx][1])}"
                 recommendations.append(f"建议转换为 {settings['recommended_resolution'][0]}x{settings['recommended_resolution'][1]} ({ratio_str})")
 
             return {
