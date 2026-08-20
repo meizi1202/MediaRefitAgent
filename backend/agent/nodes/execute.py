@@ -1,0 +1,499 @@
+"""
+执行类 Node Functions
+"""
+from datetime import datetime
+from pathlib import Path
+import os
+
+from agent.types import VideoAgentState, ConversationMessage
+from video.transformer import transform, TransformRequest
+
+
+def execute_transform(state: VideoAgentState) -> VideoAgentState:
+    """执行转换"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_path).stem
+    suffix = Path(video_path).suffix
+    output_path = str(output_dir / f"{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        request = TransformRequest(
+            input_path=video_path,
+            output_path=output_path,
+            target_orientation=state.get("target_orientation"),
+            strategy=state.get("strategy", "pad"),
+            target_ratio=state.get("target_ratio", 9/16),
+        )
+
+        def progress_callback(progress: float):
+            # 进度回调，可用于更新状态
+            pass
+
+        result = transform(request, progress_callback=progress_callback)
+        state["transform_result"] = {
+            "success": result.success,
+            "input_path": result.input_path,
+            "output_path": result.output_path,
+            "original_orientation": result.original_orientation,
+            "target_orientation": result.target_orientation,
+            "strategy_used": result.strategy_used,
+            "error": result.error,
+        }
+        state["current_step"] = "confirm_complete"
+
+        if result.success:
+            # 转换英文值为中文
+            orientation_map = {"portrait": "竖屏", "landscape": "横屏", "square": "正方形"}
+            strategy_map = {"pad": "填充黑边", "crop": "中心裁剪", "smart_crop": "智能裁剪", "stretch": "拉伸填充", "mirror_scroll": "镜像滚动", "pan_scroll": "平移运镜"}
+            target_orientation_cn = orientation_map.get(result.target_orientation, result.target_orientation)
+            target_ratio = state.get("target_ratio", "未指定")
+            strategy_used_cn = strategy_map.get(result.strategy_used, result.strategy_used)
+
+            msg = ConversationMessage(
+                role="assistant",
+                content=f"转换完成！\n\n输出文件: {result.output_path}\n目标方向: {target_orientation_cn}\n目标比例: {target_ratio}\n使用策略: {strategy_used_cn}",
+                timestamp=datetime.now().isoformat(),
+            )
+            state["messages"].append(msg)
+        else:
+            state["error"] = result.error
+            msg = ConversationMessage(
+                role="assistant",
+                content=f"转换失败: {result.error}",
+                timestamp=datetime.now().isoformat(),
+            )
+            state["messages"].append(msg)
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"转换异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
+def execute_compress(state: VideoAgentState) -> VideoAgentState:
+    """执行视频压缩"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_path).stem
+    suffix = Path(video_path).suffix
+    output_path = str(output_dir / f"compressed_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        from video.processor import compress_video
+
+        compression_level = state.get("compression_level", "medium")
+
+        def progress_callback(progress: float):
+            pass
+
+        compress_video(video_path, output_path, compression_level, progress_callback)
+
+        # 获取文件大小信息
+        original_size = os.path.getsize(video_path)
+        compressed_size = os.path.getsize(output_path)
+
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"压缩完成！\n\n原始大小: {original_size/1024/1024:.2f}MB\n压缩后: {compressed_size/1024/1024:.2f}MB\n压缩比: {compressed_size/original_size:.1%}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"压缩异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
+def execute_trim(state: VideoAgentState) -> VideoAgentState:
+    """执行视频修剪"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    start_time = state.get("start_time")
+    end_time = state.get("end_time")
+
+    if start_time is None or end_time is None:
+        state["error"] = "修剪时间参数不完整"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_path).stem
+    suffix = Path(video_path).suffix
+    output_path = str(output_dir / f"trimmed_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        from video.processor import trim_video, get_video_metadata
+
+        metadata = get_video_metadata(video_path)
+        original_duration = metadata.duration
+        original_size = os.path.getsize(video_path)
+
+        def progress_callback(progress: float):
+            pass
+
+        trim_video(video_path, output_path, start_time, end_time)
+
+        trimmed_size = os.path.getsize(output_path)
+        trimmed_duration = end_time - start_time
+
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"视频修剪完成！\n\n原始时长: {original_duration:.1f}秒\n原始大小: {original_size/1024/1024:.2f}MB\n修剪后时长: {trimmed_duration:.1f}秒\n修剪后大小: {trimmed_size/1024/1024:.2f}MB\n开始时间: {start_time}秒\n结束时间: {end_time}秒",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+        # 保存结果供预览使用
+        state["trim_result"] = {
+            "output_path": output_path,
+            "original_duration": original_duration,
+            "original_size": original_size,
+            "trimmed_duration": trimmed_duration,
+            "trimmed_size": trimmed_size,
+            "start_time": start_time,
+            "end_time": end_time,
+        }
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"修剪异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
+def execute_concat(state: VideoAgentState) -> VideoAgentState:
+    """执行视频拼接"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 获取多文件列表
+    video_files = state.get("video_files", [video_path])
+    if len(video_files) < 2:
+        state["error"] = "拼接至少需要2个视频文件"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_files[0]).stem
+    suffix = Path(video_files[0]).suffix
+    output_path = str(output_dir / f"concat_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        from video.processor import concat_videos
+
+        keep_audio = state.get("keep_audio", True)
+
+        def progress_callback(progress: float):
+            pass
+
+        concat_videos(video_files, output_path, keep_audio=keep_audio, progress_callback=progress_callback)
+
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"拼接完成！\n\n输出文件: {output_path}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"拼接异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
+def execute_info(state: VideoAgentState) -> VideoAgentState:
+    """获取视频信息"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    try:
+        from video.processor import get_video_metadata
+
+        metadata = get_video_metadata(video_path)
+        file_size = os.path.getsize(video_path) if os.path.exists(video_path) else 0
+
+        # 构建视频信息文本
+        info_text = f"""视频信息：
+- 分辨率：{metadata.width} × {metadata.height}
+- 时长：{metadata.duration:.1f} 秒
+- 文件大小：{file_size / 1024 / 1024:.1f} MB
+- 帧率：{metadata.fps:.1f} fps"""
+
+        if hasattr(metadata, 'bitrate') and metadata.bitrate:
+            info_text += f"\n- 码率：{metadata.bitrate} kbps"
+
+        msg = ConversationMessage(
+            role="assistant",
+            content=info_text,
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+        # 保存视频信息到 state
+        state["video_info"] = {
+            "width": metadata.width,
+            "height": metadata.height,
+            "duration": metadata.duration,
+            "fps": metadata.fps,
+            "file_size": file_size,
+        }
+
+        state["current_step"] = "confirm_complete"
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"获取视频信息异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
+def execute_condense(state: VideoAgentState) -> VideoAgentState:
+    """执行智能缩编"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_path).stem
+    suffix = Path(video_path).suffix
+    output_path = str(output_dir / f"condensed_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        from video.condenser import condense_video
+
+        target_duration = state.get("target_duration", 60)
+
+        def progress_callback(progress: float, status: str = ""):
+            pass
+
+        result = condense_video(
+            video_path, output_path,
+            target_duration=target_duration,
+            progress_callback=progress_callback
+        )
+
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"智能缩编完成！\n\n输出文件: {output_path}\n目标时长: {target_duration}秒",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"智能缩编异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
+def execute_restore(state: VideoAgentState) -> VideoAgentState:
+    """执行老视频修复"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_path).stem
+    suffix = Path(video_path).suffix
+    output_path = str(output_dir / f"restored_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        from video.processor import restore_video
+
+        def progress_callback(progress: float):
+            pass
+
+        # 基础修复选项（不需要高级滤镜）
+        success = restore_video(
+            video_path, output_path,
+            color_correct=True,
+            saturation=1.1,
+            contrast=1.05,
+            progress_callback=progress_callback
+        )
+
+        state["current_step"] = "confirm_complete"
+        if success:
+            msg = ConversationMessage(
+                role="assistant",
+                content=f"老视频修复完成！\n\n输出文件: {output_path}",
+                timestamp=datetime.now().isoformat(),
+            )
+        else:
+            msg = ConversationMessage(
+                role="assistant",
+                content=f"老视频修复失败",
+                timestamp=datetime.now().isoformat(),
+            )
+        state["messages"].append(msg)
+
+    except Exception as e:
+        error_msg = str(e)
+        state["error"] = error_msg
+        state["current_step"] = "confirm_complete"
+        # 如果是FFmpeg滤镜问题，提供友好提示
+        if "Option not found" in error_msg or "filter" in error_msg.lower():
+            msg = ConversationMessage(
+                role="assistant",
+                content=f"老视频修复失败：当前FFmpeg版本不支持部分高级滤镜。建议使用完整版FFmpeg。",
+                timestamp=datetime.now().isoformat(),
+            )
+        else:
+            msg = ConversationMessage(
+                role="assistant",
+                content=f"老视频修复异常: {error_msg}",
+                timestamp=datetime.now().isoformat(),
+            )
+        state["messages"].append(msg)
+
+    return state
+
+
+def execute_editor(state: VideoAgentState) -> VideoAgentState:
+    """执行智能剪辑"""
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    if not video_path:
+        state["error"] = "视频文件不存在"
+        state["current_step"] = "confirm_complete"
+        return state
+
+    # 生成输出路径
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(video_path).stem
+    suffix = Path(video_path).suffix
+    output_path = str(output_dir / f"edited_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+
+    try:
+        from video.processor import trim_video, get_video_metadata
+
+        target_duration = state.get("target_duration", 60)
+
+        def progress_callback(progress: float):
+            pass
+
+        # 简单处理：直接trim到目标时长
+        metadata = get_video_metadata(video_path)
+        if metadata.duration > target_duration:
+            start_time = 0
+            end_time = target_duration
+            trim_video(video_path, output_path, start_time, end_time)
+        else:
+            # 时长不足，直接复制
+            import shutil
+            shutil.copy(video_path, output_path)
+
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"智能剪辑完成！\n\n输出文件: {output_path}\n目标时长: {target_duration}秒",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    except Exception as e:
+        state["error"] = str(e)
+        state["current_step"] = "confirm_complete"
+        msg = ConversationMessage(
+            role="assistant",
+            content=f"智能剪辑异常: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+        )
+        state["messages"].append(msg)
+
+    return state
+
+
+def confirm_complete(state: VideoAgentState) -> VideoAgentState:
+    """确认完成"""
+    state["pending_question"] = None
+    return state
