@@ -39,7 +39,7 @@ import { useSessions } from '../composables/useSessions';
 import { useVideo } from '../composables/useVideo';
 
 const store = useAppStore();
-const { currentSessionId, createSession, addMessage } = useSessions();
+const { createSession, addMessage } = useSessions();
 const { agentChat, isLoading } = useVideo();
 
 const messageText = ref('');
@@ -52,7 +52,7 @@ async function handleSend() {
   if (!messageText.value.trim() && !hasFile) return;
 
   // 确保有会话
-  let sessionId = currentSessionId;
+  let sessionId = store.currentSessionId;
   if (!sessionId) {
     createSession();
     // createSession 会更新 store.currentSessionId，需要重新获取
