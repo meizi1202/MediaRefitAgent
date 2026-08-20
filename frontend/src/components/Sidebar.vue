@@ -18,14 +18,27 @@
       </div>
       <div class="sessions-list">
         <div
-          v-for="session in sessions"
+          v-for="session in store.sessions"
           :key="session.session_id"
           class="session-item"
           :class="{ active: session.session_id === currentSessionId }"
-          @click="handleSelectSession(session.session_id)"
         >
-          <span class="icon">💬</span>
-          <span class="name">{{ session.name || session.session_id }}</span>
+          <span class="session-icon" @click="handleSelectSession(session.session_id)">💬</span>
+          <template v-if="editingSessionId === session.session_id">
+            <input
+              ref="sessionNameInput"
+              v-model="editingSessionName"
+              class="session-name-input"
+              @blur="saveSessionName(session.session_id)"
+              @keyup.enter="saveSessionName(session.session_id)"
+              @keyup.escape="cancelEditSession"
+            />
+          </template>
+          <template v-else>
+            <span class="name" @dblclick="startEditSession(session)" :title="session.name">
+              {{ session.name || session.session_id }}
+            </span>
+          </template>
           <span class="delete" @click.stop="handleDelete(session.session_id)">✕</span>
         </div>
       </div>
@@ -39,14 +52,22 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue';
 import { useSessions } from '../composables/useSessions';
+import { useAppStore } from '../stores/app';
 
 defineProps<{ collapsed?: boolean }>();
 defineEmits(['collapse']);
 
-const { sessions, currentSessionId, createSession, selectSession, deleteSession } = useSessions();
+const store = useAppStore();
+const { currentSessionId, createSession, selectSession, deleteSession, renameSession } = useSessions();
+
 const agentName = ref(localStorage.getItem('agentName') || 'MediaRefitAgent');
 const editingName = ref(false);
 const nameInput = ref<HTMLInputElement | null>(null);
+
+// 会话名称编辑状态
+const editingSessionId = ref<string | null>(null);
+const editingSessionName = ref('');
+const sessionNameInput = ref<HTMLInputElement | null>(null);
 
 function startEdit() {
   editingName.value = true;
@@ -58,6 +79,23 @@ function saveName() {
   localStorage.setItem('agentName', agentName.value);
 }
 
+function startEditSession(session: any) {
+  editingSessionId.value = session.session_id;
+  editingSessionName.value = session.name;
+  nextTick(() => sessionNameInput.value?.focus());
+}
+
+function saveSessionName(sessionId: string) {
+  if (editingSessionName.value.trim()) {
+    renameSession(sessionId, editingSessionName.value.trim());
+  }
+  editingSessionId.value = null;
+}
+
+function cancelEditSession() {
+  editingSessionId.value = null;
+}
+
 onMounted(() => {
   agentName.value = localStorage.getItem('agentName') || 'MediaRefitAgent';
 });
@@ -67,7 +105,9 @@ function handleNewChat() {
 }
 
 function handleSelectSession(sessionId: string) {
-  selectSession(sessionId);
+  if (editingSessionId.value !== sessionId) {
+    selectSession(sessionId);
+  }
 }
 
 function handleDelete(sessionId: string) {

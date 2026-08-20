@@ -52,6 +52,14 @@ export function useSessions() {
 
   function addMessage(sessionId: string, message: Message) {
     store.addMessage(sessionId, message);
+    // 如果是用户消息且会话名称是默认名称，则自动命名为消息内容
+    if (message.role === 'user') {
+      const updatedSession = store.sessions.find(s => s.session_id === sessionId);
+      if (updatedSession && updatedSession.name === '新会话') {
+        const name = message.content.slice(0, 30) + (message.content.length > 30 ? '...' : '');
+        store.updateSession(sessionId, { name });
+      }
+    }
   }
 
   function renameSession(sessionId: string, name: string) {

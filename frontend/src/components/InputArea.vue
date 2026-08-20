@@ -68,20 +68,12 @@ async function handleSend() {
     ? `${paramsText}\n${messageText.value}`
     : messageText.value;
 
-  // 添加用户消息
+  // 添加用户消息（useSessions.ts 的 addMessage 会自动用第一条用户消息命名会话）
   addMessage(sessionId, {
     role: 'user',
     content: fullMessage || '[上传视频]',
     timestamp: new Date().toISOString(),
   });
-
-  // 如果是新建会话且名称是默认的，用第一条用户消息作为标题
-  const currentSession = store.sessions.find(s => s.session_id === sessionId);
-  if (currentSession && currentSession.name === '新会话' && messageText.value.trim()) {
-    store.updateSession(sessionId, {
-      name: messageText.value.trim().substring(0, 30) + (messageText.value.length > 30 ? '...' : '')
-    });
-  }
 
   const text = messageText.value;
   messageText.value = '';
