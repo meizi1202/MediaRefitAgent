@@ -375,8 +375,10 @@ class VideoAgent:
             }
 
         # 如果有 session，重置状态重新分析意图
+        old_messages_count = 0
         if session_id and session_id in self.sessions:
             state = self.sessions[session_id]
+            old_messages_count = len(state.get("messages", []))
             state["user_input"] = user_input
             state["temp_video_path"] = temp_video_path
             if video_files:
@@ -422,9 +424,14 @@ class VideoAgent:
         # 使用结果中的 session_id（可能由 _create_initial_state 生成）
         actual_session_id = result.get("session_id")
 
+        # 只返回新产生的消息（排除历史消息）
+        all_messages = result.get("messages", [])
+        new_messages = all_messages[old_messages_count:] if old_messages_count > 0 else all_messages
+        result["messages"] = new_messages
+
         # 同步消息到 LangChain Memory
         if actual_session_id:
-            self._sync_messages_to_memory(actual_session_id, result.get("messages", []))
+            self._sync_messages_to_memory(actual_session_id, all_messages)
 
         # 保存到 sessions
         if actual_session_id:

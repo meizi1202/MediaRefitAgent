@@ -7,10 +7,12 @@ export interface Session {
 }
 
 export interface Message {
+  id?: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: string;
   data?: VideoResult;
+  streaming?: boolean;
 }
 
 // 视频结果

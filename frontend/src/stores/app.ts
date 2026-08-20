@@ -104,6 +104,30 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // 流式消息支持 - 直接修改对象触发响应式
+  function updateStreamingMessage(sessionId: string, messageId: string, content: string) {
+    const session = sessions.value.find(s => s.session_id === sessionId);
+    if (session) {
+      const index = session.messages.findIndex((m: Message) => m.id === messageId);
+      if (index !== -1) {
+        // 直接修改 message 对象的 content 属性
+        session.messages[index].content = content;
+        // Vue 会自动检测到变化
+      }
+    }
+  }
+
+  function finishStreamingMessage(sessionId: string, messageId: string, content: string) {
+    const session = sessions.value.find(s => s.session_id === sessionId);
+    if (session) {
+      const index = session.messages.findIndex((m: Message) => m.id === messageId);
+      if (index !== -1) {
+        session.messages[index].content = content;
+        session.messages[index].streaming = false;
+      }
+    }
+  }
+
   // 格式化选中参数用于发送给 Agent
   function formatSelectedParams(): string {
     const parts: string[] = [];
@@ -183,5 +207,7 @@ export const useAppStore = defineStore('app', () => {
     updateSession,
     removeSession,
     formatSelectedParams,
+    updateStreamingMessage,
+    finishStreamingMessage,
   };
 });

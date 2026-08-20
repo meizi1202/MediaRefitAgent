@@ -6,7 +6,20 @@ from typing import Optional
 import os
 
 from agent.types import VideoAgentState, ConversationMessage
+from agent.streaming import send_stream_chunk, is_streaming_enabled
 from langchain_core.messages import HumanMessage
+
+
+def _append_message(state: VideoAgentState, role: str, content: str):
+    """添加消息并发送流式消息"""
+    msg = ConversationMessage(
+        role=role,
+        content=content,
+        timestamp=datetime.now().isoformat(),
+    )
+    state["messages"].append(msg)
+    if is_streaming_enabled():
+        send_stream_chunk(content)
 
 
 class IntentParser:
@@ -245,13 +258,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             llm_response = f"好的，我来处理。"
 
         state["all_params_provided"] = all_params_provided
-
-        msg = ConversationMessage(
-            role="assistant",
-            content=llm_response,
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", llm_response)
         return state
 
     # 优先使用 LLM 意图解析（如果可用）
@@ -329,13 +336,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                 state["compression_explicit"] = compression_explicit
                 state["all_params_provided"] = all_params_provided
                 state["pending_question"] = None if all_params_provided else "请选择压缩级别"
-
-                msg = ConversationMessage(
-                    role="assistant",
-                    content=llm_response,
-                    timestamp=datetime.now().isoformat(),
-                )
-                state["messages"].append(msg)
+                _append_message(state, "assistant", llm_response)
                 return state
 
             # 如果是视频信息请求
@@ -343,13 +344,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                 state["current_feature"] = "info"
                 state["all_params_provided"] = all_params_provided
                 state["pending_question"] = None
-
-                msg = ConversationMessage(
-                    role="assistant",
-                    content=llm_response or "好的，我来获取视频的详细信息。",
-                    timestamp=datetime.now().isoformat(),
-                )
-                state["messages"].append(msg)
+                _append_message(state, "assistant", llm_response or "好的，我来获取视频的详细信息。")
                 return state
 
             # 如果是视频修剪请求
@@ -384,12 +379,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                     state["pending_question"] = None
                     state["current_step"] = "execute_trim"
 
-                msg = ConversationMessage(
-                    role="assistant",
-                    content=llm_response,
-                    timestamp=datetime.now().isoformat(),
-                )
-                state["messages"].append(msg)
+                _append_message(state, "assistant", llm_response)
                 return state
 
             # 如果是转换请求（convert或未识别都走转换流程）
@@ -441,11 +431,6 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
 
     # 添加 LLM 的响应消息
     if llm_response:
-        msg = ConversationMessage(
-            role="assistant",
-            content=llm_response,
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", llm_response)
 
     return state

@@ -1,12 +1,27 @@
 """
 执行类 Node Functions
 """
+import json
 from datetime import datetime
 from pathlib import Path
 import os
 
 from agent.types import VideoAgentState, ConversationMessage
+from agent.streaming import send_stream_chunk, send_stream_message, is_streaming_enabled
 from video.transformer import transform, TransformRequest
+
+
+def _append_message(state: VideoAgentState, role: str, content: str):
+    """添加消息并发送流式消息"""
+    msg = ConversationMessage(
+        role=role,
+        content=content,
+        timestamp=datetime.now().isoformat(),
+    )
+    state["messages"].append(msg)
+    # 发送流式消息（仅在启用流式模式时，使用分块发送）
+    if is_streaming_enabled():
+        send_stream_chunk(content)
 
 
 def execute_transform(state: VideoAgentState) -> VideoAgentState:
@@ -57,31 +72,17 @@ def execute_transform(state: VideoAgentState) -> VideoAgentState:
             target_orientation_cn = orientation_map.get(result.target_orientation, result.target_orientation)
             target_ratio = state.get("target_ratio", "未指定")
             strategy_used_cn = strategy_map.get(result.strategy_used, result.strategy_used)
+            output_filename = Path(result.output_path).name
 
-            msg = ConversationMessage(
-                role="assistant",
-                content=f"转换完成！\n\n输出文件: {result.output_path}\n目标方向: {target_orientation_cn}\n目标比例: {target_ratio}\n使用策略: {strategy_used_cn}",
-                timestamp=datetime.now().isoformat(),
-            )
-            state["messages"].append(msg)
+            _append_message(state, "assistant", f"转换完成！\n\n输出文件: {output_filename}\n目标方向: {target_orientation_cn}\n目标比例: {target_ratio}\n使用策略: {strategy_used_cn}\n[PREVIEW:{result.output_path}]")
         else:
             state["error"] = result.error
-            msg = ConversationMessage(
-                role="assistant",
-                content=f"转换失败: {result.error}",
-                timestamp=datetime.now().isoformat(),
-            )
-            state["messages"].append(msg)
+            _append_message(state, "assistant", f"转换失败: {result.error}")
 
     except Exception as e:
         state["error"] = str(e)
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"转换异常: {str(e)}",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"转换异常: {str(e)}")
 
     return state
 
@@ -117,22 +118,12 @@ def execute_compress(state: VideoAgentState) -> VideoAgentState:
         compressed_size = os.path.getsize(output_path)
 
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"压缩完成！\n\n原始大小: {original_size/1024/1024:.2f}MB\n压缩后: {compressed_size/1024/1024:.2f}MB\n压缩比: {compressed_size/original_size:.1%}",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"压缩完成！\n\n原始大小: {original_size/1024/1024:.2f}MB\n压缩后: {compressed_size/1024/1024:.2f}MB\n压缩比: {compressed_size/original_size:.1%}")
 
     except Exception as e:
         state["error"] = str(e)
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"压缩异常: {str(e)}",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"压缩异常: {str(e)}")
 
     return state
 
@@ -177,12 +168,7 @@ def execute_trim(state: VideoAgentState) -> VideoAgentState:
         trimmed_duration = end_time - start_time
 
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"视频修剪完成！\n\n原始时长: {original_duration:.1f}秒\n原始大小: {original_size/1024/1024:.2f}MB\n修剪后时长: {trimmed_duration:.1f}秒\n修剪后大小: {trimmed_size/1024/1024:.2f}MB\n开始时间: {start_time}秒\n结束时间: {end_time}秒",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"视频修剪完成！\n\n原始时长: {original_duration:.1f}秒\n原始大小: {original_size/1024/1024:.2f}MB\n修剪后时长: {trimmed_duration:.1f}秒\n修剪后大小: {trimmed_size/1024/1024:.2f}MB\n开始时间: {start_time}秒\n结束时间: {end_time}秒")
 
         # 保存结果供预览使用
         state["trim_result"] = {
@@ -198,12 +184,7 @@ def execute_trim(state: VideoAgentState) -> VideoAgentState:
     except Exception as e:
         state["error"] = str(e)
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"修剪异常: {str(e)}",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"修剪异常: {str(e)}")
 
     return state
 
@@ -242,22 +223,12 @@ def execute_concat(state: VideoAgentState) -> VideoAgentState:
         concat_videos(video_files, output_path, keep_audio=keep_audio, progress_callback=progress_callback)
 
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"拼接完成！\n\n输出文件: {output_path}",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"拼接完成！\n\n输出文件: {output_path}")
 
     except Exception as e:
         state["error"] = str(e)
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"拼接异常: {str(e)}",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"拼接异常: {str(e)}")
 
     return state
 
@@ -292,7 +263,7 @@ def execute_info(state: VideoAgentState) -> VideoAgentState:
             content=info_text,
             timestamp=datetime.now().isoformat(),
         )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", info_text)
 
         # 保存视频信息到 state
         state["video_info"] = {
@@ -308,12 +279,7 @@ def execute_info(state: VideoAgentState) -> VideoAgentState:
     except Exception as e:
         state["error"] = str(e)
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"获取视频信息异常: {str(e)}",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"获取视频信息异常: {str(e)}")
 
     return state
 
@@ -349,22 +315,12 @@ def execute_condense(state: VideoAgentState) -> VideoAgentState:
         )
 
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"智能缩编完成！\n\n输出文件: {output_path}\n目标时长: {target_duration}秒",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"智能缩编完成！\n\n输出文件: {output_path}\n目标时长: {target_duration}秒")
 
     except Exception as e:
         state["error"] = str(e)
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"智能缩编异常: {str(e)}",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"智能缩编异常: {str(e)}")
 
     return state
 
@@ -402,18 +358,9 @@ def execute_restore(state: VideoAgentState) -> VideoAgentState:
 
         state["current_step"] = "confirm_complete"
         if success:
-            msg = ConversationMessage(
-                role="assistant",
-                content=f"老视频修复完成！\n\n输出文件: {output_path}",
-                timestamp=datetime.now().isoformat(),
-            )
+            _append_message(state, "assistant", f"老视频修复完成！\n\n输出文件: {output_path}")
         else:
-            msg = ConversationMessage(
-                role="assistant",
-                content=f"老视频修复失败",
-                timestamp=datetime.now().isoformat(),
-            )
-        state["messages"].append(msg)
+            _append_message(state, "assistant", f"老视频修复失败")
 
     except Exception as e:
         error_msg = str(e)
@@ -421,18 +368,9 @@ def execute_restore(state: VideoAgentState) -> VideoAgentState:
         state["current_step"] = "confirm_complete"
         # 如果是FFmpeg滤镜问题，提供友好提示
         if "Option not found" in error_msg or "filter" in error_msg.lower():
-            msg = ConversationMessage(
-                role="assistant",
-                content=f"老视频修复失败：当前FFmpeg版本不支持部分高级滤镜。建议使用完整版FFmpeg。",
-                timestamp=datetime.now().isoformat(),
-            )
+            _append_message(state, "assistant", f"老视频修复失败：当前FFmpeg版本不支持部分高级滤镜。建议使用完整版FFmpeg。")
         else:
-            msg = ConversationMessage(
-                role="assistant",
-                content=f"老视频修复异常: {error_msg}",
-                timestamp=datetime.now().isoformat(),
-            )
-        state["messages"].append(msg)
+            _append_message(state, "assistant", f"老视频修复异常: {error_msg}")
 
     return state
 
@@ -473,22 +411,12 @@ def execute_editor(state: VideoAgentState) -> VideoAgentState:
             shutil.copy(video_path, output_path)
 
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"智能剪辑完成！\n\n输出文件: {output_path}\n目标时长: {target_duration}秒",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"智能剪辑完成！\n\n输出文件: {output_path}\n目标时长: {target_duration}秒")
 
     except Exception as e:
         state["error"] = str(e)
         state["current_step"] = "confirm_complete"
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"智能剪辑异常: {str(e)}",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"智能剪辑异常: {str(e)}")
 
     return state
 

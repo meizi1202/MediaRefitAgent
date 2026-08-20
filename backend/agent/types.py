@@ -66,3 +66,5 @@ class VideoAgentState(TypedDict):
     transition_type_explicit: bool
     transition_duration: Optional[float]  # 转场时长（秒）
     transition_duration_explicit: bool
+    # 流式消息队列（用于 SSE）
+    message_queue: Optional[list]

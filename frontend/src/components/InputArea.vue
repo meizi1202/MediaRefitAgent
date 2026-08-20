@@ -37,10 +37,11 @@ import { ref, computed } from 'vue';
 import { useAppStore } from '../stores/app';
 import { useSessions } from '../composables/useSessions';
 import { useVideo } from '../composables/useVideo';
+import { api } from '../api';
 
 const store = useAppStore();
 const { createSession, addMessage } = useSessions();
-const { agentChat, isLoading } = useVideo();
+const { isLoading } = useVideo();
 
 const messageText = ref('');
 
@@ -104,43 +105,42 @@ async function handleSend() {
     formData.append('session_id', sessionId);
   }
 
-  // 调用 API
+  // 使用流式 API
   store.setLoading(true);
-  try {
-    const result = await agentChat(formData);
+  const targetSessionId = sessionId;
 
-    // 使用前端创建的 session_id（API 原样返回）
-    const targetSessionId = sessionId;
+  // 创建一条临时的助手消息用于流式更新
+  const streamingMessageId = Date.now().toString();
+  let accumulatedContent = '';
 
-    // 添加助手消息（可能有多条）
-    if (result?.messages && result.messages.length > 0) {
-      for (const msg of result.messages) {
-        addMessage(targetSessionId, {
-          role: msg.role || 'assistant',
-          content: msg.content || '',
-          timestamp: new Date().toISOString(),
-        });
-      }
-    } else if (result?.message) {
-      addMessage(targetSessionId, {
-        role: 'assistant',
-        content: result.message,
-        timestamp: new Date().toISOString(),
-        data: result.data,
-      });
+  addMessage(targetSessionId, {
+    id: streamingMessageId,
+    role: 'assistant',
+    content: '',
+    timestamp: new Date().toISOString(),
+    streaming: true,  // 标记为流式消息
+  });
+
+  api.agentChatStream(
+    formData,
+    // onMessage: 流式内容回调
+    (content: string) => {
+      accumulatedContent += content;
+      // 更新流式消息内容
+      store.updateStreamingMessage(targetSessionId, streamingMessageId, accumulatedContent);
+    },
+    // onDone: 完成回调
+    (_data: any) => {
+      // 流式结束，更新最终消息
+      store.finishStreamingMessage(targetSessionId, streamingMessageId, accumulatedContent);
+      store.setLoading(false);
+    },
+    // onError: 错误回调
+    (err: string) => {
+      store.finishStreamingMessage(targetSessionId, streamingMessageId, '处理过程中出现错误: ' + err);
+      store.setLoading(false);
     }
-    if (result?.data?.output_path) {
-      store.setVideoData(result.data);
-    }
-  } catch (err) {
-    addMessage(sessionId, {
-      role: 'assistant',
-      content: '抱歉，处理过程中出现错误: ' + (err instanceof Error ? err.message : String(err)),
-      timestamp: new Date().toISOString(),
-    });
-  } finally {
-    store.setLoading(false);
-  }
+  );
 }
 
 function handleFileSelect(e: Event) {

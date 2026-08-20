@@ -6,7 +6,20 @@ from typing import Literal
 import os
 
 from agent.types import VideoAgentState, ConversationMessage
+from agent.streaming import send_stream_chunk, is_streaming_enabled
 from langchain_core.messages import HumanMessage
+
+
+def _append_message(state: VideoAgentState, role: str, content: str):
+    """添加消息并发送流式消息"""
+    msg = ConversationMessage(
+        role=role,
+        content=content,
+        timestamp=datetime.now().isoformat(),
+    )
+    state["messages"].append(msg)
+    if is_streaming_enabled():
+        send_stream_chunk(content)
 
 
 def select_strategy(state: VideoAgentState) -> VideoAgentState:
@@ -54,12 +67,7 @@ def select_strategy(state: VideoAgentState) -> VideoAgentState:
         # 检查方向是否相同
         if state.get("target_orientation") and state.get("original_orientation"):
             if state["original_orientation"] == state["target_orientation"]:
-                msg = ConversationMessage(
-                    role="assistant",
-                    content="视频方向已经是目标方向，无需转换。",
-                    timestamp=datetime.now().isoformat(),
-                )
-                state["messages"].append(msg)
+                _append_message(state, "assistant", "视频方向已经是目标方向，无需转换。")
                 state["current_step"] = "confirm_complete"
                 return state
 
@@ -225,20 +233,10 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
 
             # 添加 LLM 响应
             if llm_response:
-                msg = ConversationMessage(
-                    role="assistant",
-                    content=llm_response,
-                    timestamp=datetime.now().isoformat(),
-                )
-                state["messages"].append(msg)
+                _append_message(state, "assistant", llm_response)
 
         except Exception as e:
-            msg = ConversationMessage(
-                role="assistant",
-                content=f"解析出错：{str(e)}",
-                timestamp=datetime.now().isoformat(),
-            )
-            state["messages"].append(msg)
+            _append_message(state, "assistant", f"解析出错：{str(e)}")
     else:
         # 无 LLM 时的回退
         from agent.nodes.analyze import IntentParser

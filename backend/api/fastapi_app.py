@@ -12,6 +12,7 @@ import os
 import shutil
 import tempfile
 import asyncio
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -1004,6 +1005,133 @@ async def agent_chat(
         for path in all_temp_paths:
             if os.path.exists(path):
                 os.unlink(path)
+
+
+@app.post("/api/agent/chat-stream")
+async def agent_chat_stream(
+    message: str = Form(...),
+    session_id: Optional[str] = Form(None),
+    files: Optional[list[UploadFile]] = File(None),
+    file: Optional[UploadFile] = File(None),
+    api_key: Optional[str] = Form(None),
+):
+    """
+    Agent 聊天接口（流式 SSE 输出）
+
+    使用 Server-Sent Events 流式返回每条消息
+    参考 Dify 的 /chat-messages API 事件格式
+    """
+    if not LANGGRAPH_AVAILABLE:
+        raise HTTPException(status_code=500, detail="LangGraph not available")
+
+    # 设置 API key
+    if api_key:
+        os.environ["MINIMAX_API_KEY"] = api_key
+
+    # 处理文件上传
+    uploaded_files = files if files else ([file] if file else [])
+    if not uploaded_files:
+        raise HTTPException(status_code=400, detail="请上传视频文件")
+
+    all_temp_paths = []
+    for f in uploaded_files:
+        suffix = Path(f.filename).suffix if f.filename else ".mp4"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            shutil.copyfileobj(f.file, tmp)
+            all_temp_paths.append(tmp.name)
+
+    import threading
+    from agent.streaming import (
+        get_stream_queue,
+        set_streaming_enabled,
+        clear_message_callback,
+        StreamQueue
+    )
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        # 获取或创建流式队列
+        stream_queue = get_stream_queue()
+        agent = get_video_agent()
+        error_result = [None]
+        agent_finished = [False]
+
+        def run_agent():
+            try:
+                # 启用流式输出
+                set_streaming_enabled(True)
+                agent.process_video(
+                    user_input=message,
+                    temp_video_path=all_temp_paths[0],
+                    session_id=session_id,
+                    video_files=all_temp_paths if len(all_temp_paths) > 1 else None,
+                )
+            except Exception as e:
+                error_result[0] = str(e)
+            finally:
+                agent_finished[0] = True
+                set_streaming_enabled(False)
+
+        # 在线程中执行 agent
+        agent_thread = threading.Thread(target=run_agent)
+        agent_thread.start()
+
+        # 超时控制
+        start_time = asyncio.get_event_loop().time()
+        timeout = 300  # 5分钟超时
+
+        try:
+            # 从队列读取消息并发送 SSE 事件
+            while True:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed >= timeout:
+                    yield f"data: {json.dumps({'event': 'message', 'answer': '处理超时', 'created_at': int(time.time())})}\n\n"
+                    break
+
+                # 获取所有新消息
+                messages = stream_queue.get_all()
+
+                if messages:
+                    # 逐个发送消息
+                    for msg in messages:
+                        print(f"[DEBUG] SSE sending: {msg[:50]}...")
+                        yield f"data: {json.dumps({'event': 'message', 'answer': msg, 'created_at': int(time.time())})}\n\n"
+                        await asyncio.sleep(0.05)
+
+                # 检查 agent 是否结束
+                if agent_finished[0]:
+                    if messages:
+                        # 还有消息，继续循环发送
+                        continue
+                    # 队列已空，发送错误或完成
+                    if error_result[0]:
+                        yield f"data: {json.dumps({'event': 'message', 'answer': f'处理错误: {error_result[0]}', 'created_at': int(time.time())})}\n\n"
+                    break
+
+                # 没有消息时短暂等待再检查
+                if not messages:
+                    await asyncio.sleep(0.05)
+
+            # 发送完成事件
+            yield f"data: {json.dumps({'event': 'message_end', 'conversation_id': session_id or '', 'metadata': {}})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+        finally:
+            set_streaming_enabled(False)
+            agent_thread.join(timeout=2)
+            for path in all_temp_paths:
+                if os.path.exists(path):
+                    os.unlink(path)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/agent/continue", response_model=AgentChatResponse)

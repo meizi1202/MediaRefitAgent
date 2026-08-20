@@ -5,7 +5,20 @@ from datetime import datetime
 from pathlib import Path
 
 from agent.types import VideoAgentState, ConversationMessage
+from agent.streaming import send_stream_chunk, is_streaming_enabled
 from ml.orientation_detector import detect_orientation
+
+
+def _append_message(state: VideoAgentState, role: str, content: str):
+    """添加消息并发送流式消息"""
+    msg = ConversationMessage(
+        role=role,
+        content=content,
+        timestamp=datetime.now().isoformat(),
+    )
+    state["messages"].append(msg)
+    if is_streaming_enabled():
+        send_stream_chunk(content)
 
 
 def detect_video(state: VideoAgentState) -> VideoAgentState:
@@ -29,12 +42,7 @@ def detect_video(state: VideoAgentState) -> VideoAgentState:
             "unknown": "未知",
         }.get(result.orientation, result.orientation)
 
-        msg = ConversationMessage(
-            role="assistant",
-            content=f"检测到视频是{orientation_display}的。",
-            timestamp=datetime.now().isoformat(),
-        )
-        state["messages"].append(msg)
+        _append_message(state, "assistant", f"检测到视频是{orientation_display}的。")
 
         # 只有 convert 类型才需要走 select_strategy，其他功能直接执行
         if state.get("current_feature") in (None, "convert"):

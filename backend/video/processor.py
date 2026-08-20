@@ -370,6 +370,7 @@ def stretch_to_ratio(
     metadata = get_video_metadata(input_path)
 
     # 根据目标方向计算拉伸尺寸
+    # 拉伸填充策略：直接拉伸视频内容到目标比例（可能变形）
     if target_orientation == "portrait":
         # 目标竖屏：宽度不变，高度按比例计算
         target_width = metadata.width
@@ -379,6 +380,17 @@ def stretch_to_ratio(
         target_height = metadata.height
         target_width = int(metadata.height * target_ratio)
 
+    # 限制最大尺寸防止内存溢出
+    max_dimension = 1920
+    if target_width > max_dimension:
+        scale = max_dimension / target_width
+        target_width = max_dimension
+        target_height = int(target_height * scale)
+    if target_height > max_dimension:
+        scale = max_dimension / target_height
+        target_height = max_dimension
+        target_width = int(target_width * scale)
+
     # libx264 requires dimensions divisible by 2, round to nearest even number
     target_width = (target_width + 1) // 2 * 2
     target_height = (target_height + 1) // 2 * 2
@@ -387,8 +399,9 @@ def stretch_to_ratio(
         FFMPEG_PATH,
         "-y",
         "-i", input_path,
-        "-vf", f"scale={target_width}:{target_height}",
+        "-vf", f"scale={target_width}:{target_height},setsar=1",
         "-c:a", "copy",
+        "-threads", "1",
         output_path,
     ]
 
