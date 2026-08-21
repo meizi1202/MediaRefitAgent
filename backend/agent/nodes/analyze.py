@@ -413,13 +413,34 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         ratio_explicit = False
         target_feature = "transform"
 
-    # 更新状态
+    # 使用本地关键词解析作为降级（补充 LLM 未解析出的参数）
+    local_parsed = IntentParser.parse(user_input)
+
+    # 始终用本地解析补充 LLM 结果
+    if local_parsed.get("orientation") and not target_orientation:
+        target_orientation = local_parsed["orientation"]
+        orientation_explicit = local_parsed["orientation_explicit"]
+    if local_parsed.get("strategy") and not strategy:
+        strategy = local_parsed["strategy"]
+        strategy_explicit = local_parsed["strategy_explicit"]
+    if local_parsed.get("ratio") and not ratio:
+        ratio = local_parsed["ratio"]
+        ratio_explicit = local_parsed["ratio_explicit"]
+
+    # 更新 all_params_provided
+    all_params_provided = orientation_explicit and strategy_explicit
+
+# 更新状态
     if target_orientation:
         state["target_orientation"] = target_orientation
     if strategy:
         state["strategy"] = strategy
     if ratio:
         state["target_ratio"] = ratio
+
+    # 确保 current_feature 被设置（如果之前未设置）
+    if not state.get("current_feature") and target_feature:
+        state["current_feature"] = target_feature
 
     # 记录参数是否明确指定
     state["orientation_explicit"] = orientation_explicit
