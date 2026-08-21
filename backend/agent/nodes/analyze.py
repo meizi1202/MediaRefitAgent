@@ -198,7 +198,8 @@ def _parse_ui_params(user_input: str) -> dict:
                 result["found"] = True
                 break
 
-    # 解析修剪时间
+    # 解析修剪时间（支持两种格式）
+    # 格式1：从X秒到Y秒
     trim_time_match = re.search(r'从(\d+\.?\d*)秒到(\d+\.?\d*)秒', user_input)
     if trim_time_match:
         result["start_time"] = float(trim_time_match.group(1))
@@ -206,6 +207,16 @@ def _parse_ui_params(user_input: str) -> dict:
         result["start_time_explicit"] = True
         result["end_time_explicit"] = True
         result["found"] = True
+    else:
+        # 格式2：修剪开始时间=X秒，修剪结束时间=Y秒
+        start_match = re.search(r'修剪开始时间\s*=\s*(\d+\.?\d*)秒', user_input)
+        end_match = re.search(r'修剪结束时间\s*=\s*(\d+\.?\d*)秒', user_input)
+        if start_match and end_match:
+            result["start_time"] = float(start_match.group(1))
+            result["end_time"] = float(end_match.group(1))
+            result["start_time_explicit"] = True
+            result["end_time_explicit"] = True
+            result["found"] = True
 
     return result
 

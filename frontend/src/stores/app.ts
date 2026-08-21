@@ -14,6 +14,7 @@ export const useAppStore = defineStore('app', () => {
   const selectedOrientation = ref<Orientation>('portrait');
   const selectedCompression = ref<CompressionLevel>('medium');
   const selectedRatio = ref<string>('9:16');
+  const selectedTrim = ref({ startTime: 0, endTime: 0 });
   const selectedFile = ref<File | null>(null);
   const selectedFiles = ref<File[]>([]);
   const isLoading = ref(false);
@@ -69,6 +70,10 @@ export const useAppStore = defineStore('app', () => {
 
   function setSelectedRatio(ratio: string) {
     selectedRatio.value = ratio;
+  }
+
+  function setTrim(startTime: number, endTime: number) {
+    selectedTrim.value = { startTime, endTime };
   }
 
   function setSelectedFile(file: File | null) {
@@ -183,6 +188,12 @@ export const useAppStore = defineStore('app', () => {
           parts.push(`压缩级别=${levelLabel}`);
         }
       }
+
+      // 视频修剪的参数
+      if (currentFeature.value === 'trim' && selectedTrim.value.startTime > 0 && selectedTrim.value.endTime > selectedTrim.value.startTime) {
+        parts.push(`修剪开始时间=${selectedTrim.value.startTime}秒`);
+        parts.push(`修剪结束时间=${selectedTrim.value.endTime}秒`);
+      }
     }
 
     if (parts.length === 0) {
@@ -202,6 +213,7 @@ export const useAppStore = defineStore('app', () => {
     selectedOrientation,
     selectedCompression,
     selectedRatio,
+    selectedTrim,
     selectedFile,
     selectedFiles,
     isLoading,
@@ -217,6 +229,7 @@ export const useAppStore = defineStore('app', () => {
     setOrientation,
     setCompression,
     setSelectedRatio,
+    setTrim,
     setSelectedFile,
     setSelectedFiles,
     setLoading,

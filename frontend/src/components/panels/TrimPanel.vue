@@ -22,15 +22,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useAppStore } from '../../stores/app';
 
 const store = useAppStore();
 
-const startTime = ref(0);
-const endTime = ref(0);
+const startTime = ref(store.selectedTrim.startTime);
+const endTime = ref(store.selectedTrim.endTime);
 
 const visible = computed(() => store.currentFeature === 'trim');
+
+// 同步到 store
+watch([startTime, endTime], () => {
+  store.setTrim(startTime.value, endTime.value);
+});
 
 function close() {
   store.setFeature('trim');
