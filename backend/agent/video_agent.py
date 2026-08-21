@@ -380,7 +380,9 @@ class VideoAgent:
             state = self.sessions[session_id]
             old_messages_count = len(state.get("messages", []))
             state["user_input"] = user_input
-            state["temp_video_path"] = temp_video_path
+            # 只有上传了新文件时才更新视频路径
+            if temp_video_path:
+                state["temp_video_path"] = temp_video_path
             if video_files:
                 state["video_files"] = video_files
             # 重置关键状态，让流程重新走意图分析
@@ -389,6 +391,12 @@ class VideoAgent:
             state["all_params_provided"] = False
             state["pending_question"] = None
             state["error"] = None
+            # 重置参数相关状态，避免被旧值影响
+            state["compression_level"] = None
+            state["compression_explicit"] = False
+            state["orientation_explicit"] = False
+            state["strategy_explicit"] = False
+            state["ratio_explicit"] = False
         else:
             # 创建会话目录并持久化视频
             actual_session_id = session_id or datetime.now().strftime("%Y%m%d%H%M%S")

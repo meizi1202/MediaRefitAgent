@@ -458,6 +458,18 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     if local_parsed.get("ratio_explicit"):
         ratio = local_parsed["ratio"]
         ratio_explicit = True
+    if local_parsed.get("compression_explicit"):
+        compression_level = local_parsed.get("compression")
+        compression_explicit = True
+        state["compression_level"] = compression_level
+        state["compression_explicit"] = True
+        state["all_params_provided"] = True
+        state["pending_question"] = None
+        state["current_feature"] = "compress"
+        level_str = {"low": "大文件/低压缩", "medium": "中等压缩", "high": "小文件/高压缩"}.get(compression_level, "")
+        llm_response = f"好的，将视频压缩为{level_str}。"
+        _append_message(state, "assistant", llm_response)
+        return state
 
     # 更新 all_params_provided
     all_params_provided = orientation_explicit and strategy_explicit
