@@ -174,7 +174,7 @@ def execute_trim(state: VideoAgentState) -> VideoAgentState:
         trimmed_duration = end_time - start_time
 
         state["current_step"] = "confirm_complete"
-        _append_message(state, "assistant", f"视频修剪完成！\n\n原始时长: {original_duration:.1f}秒\n原始大小: {original_size/1024/1024:.2f}MB\n修剪后时长: {trimmed_duration:.1f}秒\n修剪后大小: {trimmed_size/1024/1024:.2f}MB\n开始时间: {start_time}秒\n结束时间: {end_time}秒")
+        _append_message(state, "assistant", f"视频修剪完成！\n\n原始时长: {original_duration:.1f}秒\n原始大小: {original_size/1024/1024:.2f}MB\n修剪后时长: {trimmed_duration:.1f}秒\n修剪后大小: {trimmed_size/1024/1024:.2f}MB\n开始时间: {start_time}秒\n结束时间: {end_time}秒\n[PREVIEW:{output_path}]")
 
         # 保存结果供预览使用
         state["trim_result"] = {
