@@ -32,13 +32,13 @@
               <a :href="getPreviewUrl(group.previewPath)" target="_blank" class="download-link">⬇️ 下载</a>
             </div>
           </div>
+          <!-- 流式消息加载指示器 - 仅在当前消息组未完成时展示 -->
+          <div v-if="group.role === 'assistant' && group.items.some(item => item.streaming)" class="streaming-indicator">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
         </div>
-      </div>
-      <!-- 流式消息加载指示器 -->
-      <div v-if="hasStreamingMessage" class="streaming-indicator">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
       </div>
     </template>
   </div>
@@ -127,7 +127,7 @@ function formatContent(content: string | null | undefined): string {
   if (!content) return '';
   // 移除 [PREVIEW:...] 标签（用于触发视频预览，不显示在消息中）
   let text = content.replace(/\[PREVIEW:[^\]]*\]/g, '').trim();
-  // 转义 HTML 特殊字符，防止 \v \t 等被解释
+  // 转义 HTML 特殊字符，防止 \n \t 等被解释
   const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -135,6 +135,7 @@ function formatContent(content: string | null | undefined): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
     .replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;')  // Tab 转为 4 个空格
+    .replace(/\n/g, '<br>')  // 换行符转为 <br>
     .replace(/\v/g, '<br>');  // 垂直制表符转为换行
   return escaped.replace(/\n/g, '<br>');
 }

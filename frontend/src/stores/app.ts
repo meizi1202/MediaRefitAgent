@@ -190,7 +190,7 @@ export const useAppStore = defineStore('app', () => {
       }
 
       // 视频修剪的参数
-      if (currentFeature.value === 'trim' && selectedTrim.value.startTime > 0 && selectedTrim.value.endTime > selectedTrim.value.startTime) {
+      if (currentFeature.value === 'trim' && selectedTrim.value.endTime > selectedTrim.value.startTime) {
         parts.push(`修剪开始时间=${selectedTrim.value.startTime}秒`);
         parts.push(`修剪结束时间=${selectedTrim.value.endTime}秒`);
       }
