@@ -430,6 +430,14 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     # 更新 all_params_provided
     all_params_provided = orientation_explicit and strategy_explicit
 
+    # 如果本地解析补充了参数且参数完整，生成正确的回复
+    if all_params_provided and (local_parsed.get("orientation") or local_parsed.get("strategy") or local_parsed.get("ratio")):
+        orientation_str = "竖屏" if target_orientation == "portrait" else "横屏"
+        ratio_str = "9:16" if ratio and ratio < 1 else ("16:9" if ratio and ratio > 1 else "")
+        strategy_str = {"pad": "填充黑边", "crop": "中心裁剪", "smart_crop": "智能裁剪", "stretch": "拉伸"}.get(strategy, strategy or "")
+        llm_response = f"好的，使用{ratio_str}{orientation_str}和{strategy_str}策略，正在为您转换..."
+        print(f"[DEBUG] Local fallback generated response: {llm_response}")
+
 # 更新状态
     if target_orientation:
         state["target_orientation"] = target_orientation
