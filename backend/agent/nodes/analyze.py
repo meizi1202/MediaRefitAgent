@@ -416,16 +416,16 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     # 使用本地关键词解析作为降级（补充 LLM 未解析出的参数）
     local_parsed = IntentParser.parse(user_input)
 
-    # 始终用本地解析补充 LLM 结果
-    if local_parsed.get("orientation") and not target_orientation:
+    # 始终用本地解析补充 LLM 结果（如果用户明确提到则覆盖）
+    if local_parsed.get("orientation_explicit"):
         target_orientation = local_parsed["orientation"]
-        orientation_explicit = local_parsed["orientation_explicit"]
-    if local_parsed.get("strategy") and not strategy:
+        orientation_explicit = True
+    if local_parsed.get("strategy_explicit"):
         strategy = local_parsed["strategy"]
-        strategy_explicit = local_parsed["strategy_explicit"]
-    if local_parsed.get("ratio") and not ratio:
+        strategy_explicit = True
+    if local_parsed.get("ratio_explicit"):
         ratio = local_parsed["ratio"]
-        ratio_explicit = local_parsed["ratio_explicit"]
+        ratio_explicit = True
 
     # 更新 all_params_provided
     all_params_provided = orientation_explicit and strategy_explicit
