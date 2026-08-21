@@ -31,9 +31,12 @@ class IntentParser:
         "landscape": ["横屏", "landscape", "水平", "横", "16:9", "16/9", "21:9", "21/9", "4:3", "4/3", "3:2", "3/2", "横版", "电影"],
     }
 
-    # 策略关键词
+    # 策略关键词（按优先级排序：更具体的在前）
     STRATEGY_KEYWORDS = {
         "smart_crop": ["智能裁剪", "smart", "AI裁剪", "ai crop", "智能", "AI"],
+        "stretch": ["拉伸填充", "拉伸", "stretch"],
+        "mirror_scroll": ["镜像滚动", "镜像", "mirror"],
+        "pan_scroll": ["平移运镜", "平移", "运镜", "pan"],
         "crop": ["裁剪", "crop", "切", "截"],
         "pad": ["填充", "pad", "黑边", "留边", "保持完整"],
         "rotate": ["旋转", "rotate", "旋转90度", "rotate90"],
@@ -434,7 +437,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     if all_params_provided and (local_parsed.get("orientation") or local_parsed.get("strategy") or local_parsed.get("ratio")):
         orientation_str = "竖屏" if target_orientation == "portrait" else "横屏"
         ratio_str = "9:16" if ratio and ratio < 1 else ("16:9" if ratio and ratio > 1 else "")
-        strategy_str = {"pad": "填充黑边", "crop": "中心裁剪", "smart_crop": "智能裁剪", "stretch": "拉伸"}.get(strategy, strategy or "")
+        strategy_str = {"pad": "填充黑边", "crop": "中心裁剪", "smart_crop": "智能裁剪", "stretch": "拉伸填充", "mirror_scroll": "镜像滚动", "pan_scroll": "平移运镜"}.get(strategy, strategy or "")
         llm_response = f"好的，使用{ratio_str}{orientation_str}和{strategy_str}策略，正在为您转换..."
         print(f"[DEBUG] Local fallback generated response: {llm_response}")
 

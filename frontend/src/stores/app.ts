@@ -161,6 +161,8 @@ export const useAppStore = defineStore('app', () => {
             'crop': '中心裁剪',
             'smart_crop': '智能裁剪',
             'stretch': '拉伸填充',
+            'mirror_scroll': '镜像滚动',
+            'pan_scroll': '平移运镜',
           };
           const strategyLabel = strategyMap[selectedStrategy.value];
           if (strategyLabel) {
