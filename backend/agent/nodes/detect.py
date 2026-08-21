@@ -42,7 +42,9 @@ def detect_video(state: VideoAgentState) -> VideoAgentState:
             "unknown": "未知",
         }.get(result.orientation, result.orientation)
 
-        _append_message(state, "assistant", f"检测到视频是{orientation_display}的。")
+        # 只在横竖屏转换时显示视频方向信息
+        if state.get("current_feature") in (None, "convert", "orient"):
+            _append_message(state, "assistant", f"检测到视频是{orientation_display}的。")
 
         # 如果有待回答的问题，跳过执行让用户补充参数
         if state.get("pending_question"):
