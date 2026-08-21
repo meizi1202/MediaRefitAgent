@@ -130,8 +130,64 @@ export const useAppStore = defineStore('app', () => {
 
   // 格式化选中参数用于发送给 Agent
   function formatSelectedParams(): string {
-    // WEB端快捷标签非必选，不再附带参数信息
-    return '';
+    const parts: string[] = [];
+
+    // 功能类型
+    if (currentFeature.value) {
+      const featureMap: Record<string, string> = {
+        'orient': '横竖屏转换',
+        'compress': '视频压缩',
+        'trim': '视频修剪',
+        'concat': '视频拼接',
+        'condense': '智能缩编',
+        'restore': '老视频修复',
+        'editor': '智能剪辑',
+        'info': '视频信息获取',
+      };
+      const featureLabel = featureMap[currentFeature.value];
+      if (featureLabel) {
+        parts.push(`功能=${featureLabel}`);
+      }
+
+      // 横竖屏转换的参数
+      if (currentFeature.value === 'orient') {
+        if (selectedOrientation.value) {
+          const ratioText = selectedRatio.value || '';
+          parts.push(`目标方向=${selectedOrientation.value === 'portrait' ? '竖屏' : '横屏'} ${ratioText}`);
+        }
+        if (selectedStrategy.value) {
+          const strategyMap: Record<string, string> = {
+            'pad': '填充黑边',
+            'crop': '中心裁剪',
+            'smart_crop': '智能裁剪',
+            'stretch': '拉伸填充',
+          };
+          const strategyLabel = strategyMap[selectedStrategy.value];
+          if (strategyLabel) {
+            parts.push(`转换策略=${strategyLabel}`);
+          }
+        }
+      }
+
+      // 视频压缩的参数
+      if (currentFeature.value === 'compress' && selectedCompression.value) {
+        const levelMap: Record<string, string> = {
+          'low': '低',
+          'medium': '中',
+          'high': '高',
+        };
+        const levelLabel = levelMap[selectedCompression.value];
+        if (levelLabel) {
+          parts.push(`压缩级别=${levelLabel}`);
+        }
+      }
+    }
+
+    if (parts.length === 0) {
+      return '';
+    }
+
+    return `[用户已选择参数：${parts.join('，')}]`;
   }
 
   return {
