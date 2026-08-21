@@ -42,6 +42,13 @@ class IntentParser:
         "rotate": ["旋转", "rotate", "旋转90度", "rotate90"],
     }
 
+    # 压缩级别关键词
+    COMPRESSION_KEYWORDS = {
+        "low": ["高质量", "low", "低压缩", "大文件", "保持质量"],
+        "medium": ["中等质量", "medium", "平衡", "中等"],
+        "high": ["高质量小文件", "high", "小文件", "高压缩", "压缩率高"],
+    }
+
     @classmethod
     def parse_orientation(cls, text: str) -> tuple[Optional[str], bool]:
         """解析目标方向，返回 (方向, 是否明确指定)"""
@@ -79,11 +86,22 @@ class IntentParser:
         return None, False
 
     @classmethod
+    def parse_compression(cls, text: str) -> tuple[Optional[str], bool]:
+        """解析压缩级别，返回 (级别, 是否明确指定)"""
+        text_lower = text.lower()
+        for level, keywords in cls.COMPRESSION_KEYWORDS.items():
+            for kw in keywords:
+                if kw in text_lower:
+                    return level, True
+        return None, False
+
+    @classmethod
     def parse(cls, text: str) -> dict:
         """解析用户输入"""
         orientation, orientation_explicit = cls.parse_orientation(text)
         strategy, strategy_explicit = cls.parse_strategy(text)
         ratio, ratio_explicit = cls.parse_ratio(text)
+        compression, compression_explicit = cls.parse_compression(text)
         return {
             "orientation": orientation,
             "orientation_explicit": orientation_explicit,
@@ -91,6 +109,8 @@ class IntentParser:
             "strategy_explicit": strategy_explicit,
             "ratio": ratio,
             "ratio_explicit": ratio_explicit,
+            "compression": compression,
+            "compression_explicit": compression_explicit,
         }
 
 
@@ -265,6 +285,9 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         return state
 
     # 优先使用 LLM 意图解析（如果可用）
+    # 同时做本地解析作为降级
+    local_parsed = IntentParser.parse(user_input)
+
     LLM_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
     llm_parse_intent = None
 
@@ -334,11 +357,18 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
 
             # 如果是压缩请求
             if target_feature == "compress":
+                # 本地解析降级（如果 LLM 没有解析出压缩级别）
+                if not compression_explicit and local_parsed.get("compression_explicit"):
+                    compression_level = local_parsed.get("compression")
+                    compression_explicit = True
                 state["current_feature"] = "compress"
                 state["compression_level"] = compression_level
                 state["compression_explicit"] = compression_explicit
-                state["all_params_provided"] = all_params_provided
-                state["pending_question"] = None if all_params_provided else "请选择压缩级别"
+                state["all_params_provided"] = compression_explicit and bool(compression_level)
+                state["pending_question"] = None if state["all_params_provided"] else "请选择压缩级别"
+                if state["all_params_provided"]:
+                    level_str = {"low": "高质量", "medium": "中等质量", "high": "高质量小文件"}.get(compression_level, "")
+                    llm_response = f"好的，将视频压缩为{level_str}。"
                 _append_message(state, "assistant", llm_response)
                 return state
 
@@ -416,10 +446,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         ratio_explicit = False
         target_feature = "transform"
 
-    # 使用本地关键词解析作为降级（补充 LLM 未解析出的参数）
-    local_parsed = IntentParser.parse(user_input)
-
-    # 始终用本地解析补充 LLM 结果（如果用户明确提到则覆盖）
+    # 使用本地关键词解析补充 LLM 结果（如果用户明确提到则覆盖）
     if local_parsed.get("orientation_explicit"):
         target_orientation = local_parsed["orientation"]
         orientation_explicit = True
