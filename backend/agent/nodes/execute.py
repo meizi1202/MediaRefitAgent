@@ -229,7 +229,8 @@ def execute_concat(state: VideoAgentState) -> VideoAgentState:
         concat_videos(video_files, output_path, keep_audio=keep_audio, progress_callback=progress_callback)
 
         state["current_step"] = "confirm_complete"
-        _append_message(state, "assistant", f"拼接完成！\n\n输出文件: {output_path}")
+        output_filename = Path(output_path).name
+        _append_message(state, "assistant", f"拼接完成！\n\n输出文件: {output_filename}\n[PREVIEW:{output_path}]")
 
     except Exception as e:
         state["error"] = str(e)
