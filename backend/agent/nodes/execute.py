@@ -124,7 +124,7 @@ def execute_compress(state: VideoAgentState) -> VideoAgentState:
         compressed_size = os.path.getsize(output_path)
 
         state["current_step"] = "confirm_complete"
-        _append_message(state, "assistant", f"压缩完成！\n\n原始大小: {original_size/1024/1024:.2f}MB\n压缩后: {compressed_size/1024/1024:.2f}MB\n压缩比: {compressed_size/original_size:.1%}")
+        _append_message(state, "assistant", f"压缩完成！\n\n原始大小: {original_size/1024/1024:.2f}MB\n压缩后: {compressed_size/1024/1024:.2f}MB\n压缩比: {compressed_size/original_size:.1%}\n[PREVIEW:{output_path}]")
 
     except Exception as e:
         state["error"] = str(e)

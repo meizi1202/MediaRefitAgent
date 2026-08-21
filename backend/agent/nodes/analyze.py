@@ -44,9 +44,9 @@ class IntentParser:
 
     # 压缩级别关键词
     COMPRESSION_KEYWORDS = {
-        "low": ["高质量", "low", "低压缩", "大文件", "保持质量"],
-        "medium": ["中等质量", "medium", "平衡", "中等"],
-        "high": ["高质量小文件", "high", "小文件", "高压缩", "压缩率高"],
+        "low": ["大文件", "low", "低压缩", "保持质量", "高质量"],
+        "medium": ["中等", "medium", "平衡", "普通"],
+        "high": ["小文件", "high", "高压缩", "高压缩率", "压缩率高", "高质量小文件"],
     }
 
     @classmethod
@@ -367,7 +367,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                 state["all_params_provided"] = compression_explicit and bool(compression_level)
                 state["pending_question"] = None if state["all_params_provided"] else "请选择压缩级别"
                 if state["all_params_provided"]:
-                    level_str = {"low": "高质量", "medium": "中等质量", "high": "高质量小文件"}.get(compression_level, "")
+                    level_str = {"low": "大文件/低压缩", "medium": "中等压缩", "high": "小文件/高压缩"}.get(compression_level, "")
                     llm_response = f"好的，将视频压缩为{level_str}。"
                 _append_message(state, "assistant", llm_response)
                 return state
