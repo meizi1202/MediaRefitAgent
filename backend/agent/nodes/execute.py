@@ -69,8 +69,14 @@ def execute_transform(state: VideoAgentState) -> VideoAgentState:
             # 转换英文值为中文
             orientation_map = {"portrait": "竖屏", "landscape": "横屏", "square": "正方形"}
             strategy_map = {"pad": "填充黑边", "crop": "中心裁剪", "smart_crop": "智能裁剪", "stretch": "拉伸填充", "mirror_scroll": "镜像滚动", "pan_scroll": "平移运镜"}
+            # 比例映射：float -> string
+            ratio_map = {0.5625: "9:16", 0.8: "4:5", 1.0: "1:1", 1.7778: "16:9", 2.3333: "21:9", 1.3333: "4:3"}
             target_orientation_cn = orientation_map.get(result.target_orientation, result.target_orientation)
-            target_ratio = state.get("target_ratio", "未指定")
+            target_ratio_raw = state.get("target_ratio")
+            if target_ratio_raw:
+                target_ratio = ratio_map.get(target_ratio_raw, str(target_ratio_raw))
+            else:
+                target_ratio = "未指定"
             strategy_used_cn = strategy_map.get(result.strategy_used, result.strategy_used)
             output_filename = Path(result.output_path).name
 
