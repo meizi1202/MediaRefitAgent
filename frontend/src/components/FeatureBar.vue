@@ -21,6 +21,10 @@ const store = useAppStore();
 const currentFeature = computed(() => store.currentFeature);
 
 function handleSelect(feature: Feature) {
-  store.setFeature(feature);
+  if (store.currentFeature === feature) {
+    store.setFeature(null);  // 再次点击同一个标签，取消选中
+  } else {
+    store.setFeature(feature);
+  }
 }
 </script>

@@ -6,7 +6,7 @@ export const useAppStore = defineStore('app', () => {
   // 状态 - 使用 ref 确保响应式
   const sessions = ref<Session[]>([]);
   const currentSessionId = ref<string | null>(null);
-  const currentFeature = ref<Feature>('orient');
+  const currentFeature = ref<Feature | null>(null);  // 初始为 null，快捷标签非必选
   const currentVideoData = ref<VideoResult | null>(null);
 
   // UI 状态
@@ -47,7 +47,7 @@ export const useAppStore = defineStore('app', () => {
     currentSessionId.value = sessionId;
   }
 
-  function setFeature(feature: Feature) {
+  function setFeature(feature: Feature | null) {
     currentFeature.value = feature;
   }
 
@@ -130,49 +130,8 @@ export const useAppStore = defineStore('app', () => {
 
   // 格式化选中参数用于发送给 Agent
   function formatSelectedParams(): string {
-    const parts: string[] = [];
-    const feature = currentFeature.value;
-
-    // 功能类型
-    const featureMap: Record<Feature, string> = {
-      orient: '横竖屏转换',
-      compress: '视频压缩',
-      trim: '视频修剪',
-      concat: '视频拼接',
-      condense: '智能缩编',
-      restore: '老视频修复',
-      editor: '智能剪辑',
-      info: '视频信息获取',
-    };
-    parts.push(`功能=${featureMap[feature] || feature}`);
-
-    if (feature === 'orient' && selectedOrientation.value) {
-      const orientText = selectedOrientation.value === 'portrait' ? '竖屏' : '横屏';
-      parts.push(`目标方向=${orientText} ${selectedRatio.value}`);
-    }
-
-    if (feature === 'orient' && selectedStrategy.value) {
-      const strategyMap: Record<Strategy, string> = {
-        pad: '填充黑边',
-        crop: '中心裁剪',
-        smart_crop: '智能裁剪',
-        stretch: '拉伸填充',
-        mirror_scroll: '镜像滚动',
-        pan_scroll: '平移运镜',
-      };
-      parts.push(`转换策略=${strategyMap[selectedStrategy.value]}`);
-    }
-
-    if (feature === 'compress' && selectedCompression.value) {
-      const levelMap: Record<CompressionLevel, string> = {
-        low: '低',
-        medium: '中',
-        high: '高',
-      };
-      parts.push(`压缩级别=${levelMap[selectedCompression.value]}`);
-    }
-
-    return `[用户已选择参数：${parts.join('，')}]`;
+    // WEB端快捷标签非必选，不再附带参数信息
+    return '';
   }
 
   return {
