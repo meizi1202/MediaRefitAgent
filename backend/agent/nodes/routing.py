@@ -9,6 +9,17 @@ from agent.types import VideoAgentState, ConversationMessage
 from agent.streaming import send_stream_chunk, is_streaming_enabled
 from langchain_core.messages import HumanMessage
 
+# 功能到执行步骤的映射（与 analyze.py 保持一致）
+FEATURE_TO_STEP = {
+    "compress": "execute_compress",
+    "trim": "execute_trim",
+    "concat": "execute_concat",
+    "condense": "execute_condense",
+    "restore": "execute_restore",
+    "editor": "execute_editor",
+    "info": "execute_info",
+}
+
 
 def _append_message(state: VideoAgentState, role: str, content: str):
     """添加消息并发送流式消息"""
@@ -27,39 +38,9 @@ def select_strategy(state: VideoAgentState) -> VideoAgentState:
     feature = state.get("current_feature")
     all_params = state.get("all_params_provided", False)
 
-    # 压缩流程直接执行
-    if feature == "compress" and all_params:
-        state["current_step"] = "execute_compress"
-        return state
-
-    # 修剪流程直接执行
-    if feature == "trim" and all_params:
-        state["current_step"] = "execute_trim"
-        return state
-
-    # 视频拼接流程
-    if feature == "concat" and all_params:
-        state["current_step"] = "execute_concat"
-        return state
-
-    # 智能缩编流程
-    if feature == "condense" and all_params:
-        state["current_step"] = "execute_condense"
-        return state
-
-    # 老视频修复流程
-    if feature == "restore" and all_params:
-        state["current_step"] = "execute_restore"
-        return state
-
-    # 视频信息获取
-    if feature == "info" and all_params:
-        state["current_step"] = "execute_info"
-        return state
-
-    # 智能剪辑
-    if feature == "editor" and all_params:
-        state["current_step"] = "execute_editor"
+    # 非 convert 功能，参数完整时直接执行
+    if feature != "convert" and feature in FEATURE_TO_STEP and all_params:
+        state["current_step"] = FEATURE_TO_STEP[feature]
         return state
 
     # 横竖屏转换
@@ -89,6 +70,7 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     """处理用户对问题的回答 - 使用 LLM 解析"""
     import os
     user_input = state["user_input"]
+    print(f"[DEBUG handle_user_response] called, current_step={state.get('current_step')}, pending_question={state.get('pending_question')}")
 
     # 重要检查：如果 current_step 不是 "waiting_for_user"（前一轮结束时设置的），
     # 说明这不是用户回答问题的轮次，而是新一轮对话，不应该处理
@@ -177,7 +159,11 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
                     state["compression_level"] = compression_level
                 state["compression_explicit"] = compression_explicit
                 state["all_params_provided"] = compression_explicit and bool(compression_level)
-                state["pending_question"] = None if state["all_params_provided"] else "请选择压缩级别"
+                if not state["all_params_provided"]:
+                    state["pending_question"] = "请选择压缩级别"
+                    _append_message(state, "assistant", state["pending_question"])
+                else:
+                    state["pending_question"] = None
             elif target_feature == "concat":
                 state["current_feature"] = "concat"
                 # 如果上传了多个视频文件，参数就完整了
@@ -189,6 +175,7 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
                 else:
                     state["all_params_provided"] = False
                     state["pending_question"] = "请上传至少2个视频文件进行拼接"
+                    _append_message(state, "assistant", state["pending_question"])
             elif target_feature == "trim":
                 state["current_feature"] = "trim"
                 if start_time is not None:
@@ -211,6 +198,7 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
                     if not end_time_explicit:
                         missing.append("结束时间")
                     state["pending_question"] = f"请提供{'和'.join(missing)}"
+                    _append_message(state, "assistant", state["pending_question"])
                 else:
                     state["pending_question"] = None
                     state["current_step"] = "execute_trim"
@@ -224,11 +212,13 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
                 if ratio and ratio_explicit:
                     state["target_ratio"] = ratio
 
+                # 先更新各个标志位
                 state["orientation_explicit"] = state.get("orientation_explicit") or orientation_explicit
                 state["strategy_explicit"] = state.get("strategy_explicit") or strategy_explicit
                 state["ratio_explicit"] = state.get("ratio_explicit") or ratio_explicit
+                # 然后重新计算 all_params_provided（使用更新后的值）
                 state["all_params_provided"] = all_params_provided or (
-                    state.get("orientation_explicit") and state.get("strategy_explicit")
+                    state["orientation_explicit"] and state["strategy_explicit"]
                 )
 
             # 添加 LLM 响应
@@ -262,14 +252,8 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     else:
         state["pending_question"] = None
         # 参数完整时直接设置执行步骤
-        if state.get("current_feature") == "compress":
-            state["current_step"] = "execute_compress"
-        elif state.get("current_feature") == "trim":
-            state["current_step"] = "execute_trim"
-        elif state.get("current_feature") == "concat":
-            state["current_step"] = "execute_concat"
-        else:
-            state["current_step"] = "execute_transform"
+        feature = state.get("current_feature")
+        state["current_step"] = FEATURE_TO_STEP.get(feature, "execute_transform")
         return state
 
 

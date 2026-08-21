@@ -22,6 +22,24 @@ def _append_message(state: VideoAgentState, role: str, content: str):
         send_stream_chunk(content)
 
 
+# 功能到执行步骤的映射
+FEATURE_TO_STEP = {
+    "compress": "execute_compress",
+    "trim": "execute_trim",
+    "concat": "execute_concat",
+    "condense": "execute_condense",
+    "restore": "execute_restore",
+    "editor": "execute_editor",
+    "info": "execute_info",
+}
+
+
+def _complete_params_provided(state: VideoAgentState, feature: str):
+    """通用：UI 参数完整时设置执行步骤并清除 pending_question"""
+    state["pending_question"] = None
+    state["current_step"] = FEATURE_TO_STEP.get(feature, "execute_transform")
+
+
 class IntentParser:
     """意图解析器"""
 
@@ -226,12 +244,14 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     import os
 
     user_input = state["user_input"]
+    video_files = state.get("video_files") or []
 
     llm_response = ""
     all_params_provided = False
 
     # 优先解析UI选择参数格式 [用户已选择参数：...]
     ui_params = _parse_ui_params(user_input)
+    print(f"[DEBUG analyze_intent] user_input: {user_input[:100]}, video_files count: {len(video_files)}")
     if ui_params.get("found"):
         feature = ui_params.get("feature", "convert")
         state["current_feature"] = feature
@@ -293,6 +313,11 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
 
         state["all_params_provided"] = all_params_provided
         _append_message(state, "assistant", llm_response)
+
+        # UI 参数完整时，直接设置执行步骤（避免再次进入 waiting_for_user）
+        if all_params_provided:
+            _complete_params_provided(state, feature)
+
         return state
 
     # 优先使用 LLM 意图解析（如果可用）
@@ -368,6 +393,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
 
             # 如果是压缩请求
             if target_feature == "compress":
+                print(f"[DEBUG compress] compression_explicit={compression_explicit}, compression_level={compression_level}")
                 # 本地解析降级（如果 LLM 没有解析出压缩级别）
                 if not compression_explicit and local_parsed.get("compression_explicit"):
                     compression_level = local_parsed.get("compression")
@@ -382,6 +408,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                     llm_response = f"好的，将视频压缩为{level_str}。"
                 else:
                     llm_response = "请选择压缩级别：low（大文件/低压缩）、medium（中等压缩）、high（小文件/高压缩）"
+                print(f"[DEBUG compress] sending message: {llm_response}")
                 _append_message(state, "assistant", llm_response)
                 return state
 

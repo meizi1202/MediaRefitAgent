@@ -8,10 +8,16 @@
         <span class="file-size">{{ formatSize(selectedFile.size) }}</span>
         <button class="remove-btn" @click="removeFile">×</button>
       </div>
-      <div class="file-tag" v-else-if="selectedFiles.length > 0">
+      <div class="file-tag" v-for="(file, i) in selectedFiles" :key="i"
+        draggable="true"
+        @dragstart="onDragStart($event, i)"
+        @dragover.prevent="onDragOver($event, i)"
+        @drop="onDrop($event, i)"
+        :class="{ 'dragging': dragIndex === i }"
+      >
         <span class="file-icon">📹</span>
-        <span class="file-name">{{ selectedFiles.length }} 个视频</span>
-        <button class="remove-btn" @click="removeFiles">×</button>
+        <span class="file-name">{{ file.name }}</span>
+        <button class="remove-btn" @click="removeFileByIndex(i)">×</button>
       </div>
     </div>
 
@@ -152,8 +158,34 @@ function removeFile() {
   store.setSelectedFile(null);
 }
 
-function removeFiles() {
-  store.setSelectedFiles([]);
+function removeFileByIndex(index: number) {
+  const files = [...store.selectedFiles];
+  files.splice(index, 1);
+  store.setSelectedFiles(files);
+}
+
+const dragIndex = ref<number | null>(null);
+
+function onDragStart(e: DragEvent, i: number) {
+  dragIndex.value = i;
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move';
+  }
+}
+
+function onDragOver(e: DragEvent, i: number) {
+  if (dragIndex.value !== null && dragIndex.value !== i) {
+    const files = [...store.selectedFiles];
+    const draggedItem = files[dragIndex.value];
+    files.splice(dragIndex.value, 1);
+    files.splice(i, 0, draggedItem);
+    dragIndex.value = i;
+    store.setSelectedFiles(files);
+  }
+}
+
+function onDrop(e: DragEvent, i: number) {
+  dragIndex.value = null;
 }
 
 function formatSize(bytes: number) {
@@ -209,6 +241,32 @@ function handleKeydown(e: KeyboardEvent) {
 }
 .remove-btn:hover {
   color: #c00;
+}
+.file-order {
+  display: flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+.order-btn {
+  background: #3a3a3a;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+.order-btn:hover {
+  background: #4a4a4a;
+  color: #fff;
+}
+.order-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.file-tag.dragging {
+  opacity: 0.5;
+  background: #3a3a3a;
 }
 .input-area {
   background: #1a1a1a;
