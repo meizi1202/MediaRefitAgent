@@ -369,6 +369,8 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                 if state["all_params_provided"]:
                     level_str = {"low": "大文件/低压缩", "medium": "中等压缩", "high": "小文件/高压缩"}.get(compression_level, "")
                     llm_response = f"好的，将视频压缩为{level_str}。"
+                else:
+                    llm_response = "请选择压缩级别：low（大文件/低压缩）、medium（中等压缩）、high（小文件/高压缩）"
                 _append_message(state, "assistant", llm_response)
                 return state
 

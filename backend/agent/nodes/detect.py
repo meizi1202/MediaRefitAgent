@@ -44,6 +44,11 @@ def detect_video(state: VideoAgentState) -> VideoAgentState:
 
         _append_message(state, "assistant", f"检测到视频是{orientation_display}的。")
 
+        # 如果有待回答的问题，跳过执行让用户补充参数
+        if state.get("pending_question"):
+            state["current_step"] = "waiting_for_user"
+            return state
+
         # 只有 convert 类型才需要走 select_strategy，其他功能直接执行
         if state.get("current_feature") in (None, "convert"):
             state["current_step"] = "select_strategy"
