@@ -34,7 +34,7 @@ export function useSessions() {
     if (session && session.messages.length === 0) {
       try {
         const data = await api.getSession(sessionId);
-        session.messages = data.messages || [];
+        store.updateSession(sessionId, { messages: data.messages || [] });
       } catch (e) {
         console.error('Failed to load session:', e);
       }

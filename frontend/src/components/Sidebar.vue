@@ -21,9 +21,10 @@
           v-for="session in store.sessions"
           :key="session.session_id"
           class="session-item"
-          :class="{ active: session.session_id === currentSessionId }"
+          :class="{ active: session.session_id === store.currentSessionId }"
+          @click="handleSelectSession(session.session_id)"
         >
-          <span class="session-icon" @click="handleSelectSession(session.session_id)">💬</span>
+          <span class="session-icon">💬</span>
           <template v-if="editingSessionId === session.session_id">
             <input
               ref="sessionNameInput"
@@ -58,7 +59,7 @@ defineProps<{ collapsed?: boolean }>();
 defineEmits(['collapse']);
 
 const store = useAppStore();
-const { currentSessionId, createSession, selectSession, deleteSession, renameSession } = useSessions();
+const { createSession, selectSession, deleteSession, renameSession } = useSessions();
 
 const agentName = ref(localStorage.getItem('agentName') || 'MediaRefitAgent');
 const editingName = ref(false);
