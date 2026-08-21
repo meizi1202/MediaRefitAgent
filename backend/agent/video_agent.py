@@ -240,7 +240,6 @@ def create_video_agent_graph():
         "select_strategy",
         should_proceed,
         {
-            "select_strategy": "select_strategy",
             "execute_transform": "execute_transform",
             "execute_compress": "execute_compress",
             "execute_concat": "execute_concat",
@@ -266,6 +265,7 @@ def create_video_agent_graph():
         "handle_user_response",
         should_proceed,
         {
+            "select_strategy": "select_strategy",
             "execute_transform": "execute_transform",
             "execute_compress": "execute_compress",
             "execute_concat": "execute_concat",
@@ -385,11 +385,14 @@ class VideoAgent:
                 state["temp_video_path"] = temp_video_path
             if video_files:
                 state["video_files"] = video_files
-            # 重置关键状态，让流程重新走意图分析
-            state["current_step"] = "analyze_intent"
-            state["current_feature"] = None
-            state["all_params_provided"] = False
-            state["pending_question"] = None
+            # 如果有待回答的问题，设置 current_step 为 waiting_for_user 让流程走到 handle_user_response
+            if state.get("pending_question"):
+                state["current_step"] = "waiting_for_user"
+            else:
+                # 重置关键状态，让流程重新走意图分析
+                state["current_step"] = "analyze_intent"
+                state["current_feature"] = None
+                state["all_params_provided"] = False
             state["error"] = None
             # 重置参数相关状态，避免被旧值影响
             state["compression_level"] = None

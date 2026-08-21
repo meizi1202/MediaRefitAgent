@@ -97,6 +97,8 @@ COMPRESS_PARAM_PROMPT = """【任务】解析视频压缩需求
 {video_info}
 
 ---
+用户输入：{user_input}
+
 
 级别：low=高质量大文件，medium=平衡，high=小体积低质量
 
@@ -131,13 +133,13 @@ CONCAT_PARAM_PROMPT = """【任务】解析视频拼接需求
 {video_info}
 
 ---
-
-注意：拼接至少需要2个视频
+ 用户输入：{user_input}
+ 是否保留音频：keep_audio=true/false
 
 【规则】用户已回答的用 explicit=true，未回答的用 explicit=false
 
 【输出格式】
-{{"concat_explicit":true/false,"file_count":数字,"keep_audio":true/false,"response":"助手回复"}}"""
+{{"concat_explicit":true/false,"keep_audio":true/false,"response":"助手回复"}}"""
 
 # ============ restore 工具 ============
 RESTORE_PARAM_PROMPT = """【任务】解析老视频修复需求

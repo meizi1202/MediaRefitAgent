@@ -1028,17 +1028,17 @@ async def agent_chat_stream(
     if api_key:
         os.environ["MINIMAX_API_KEY"] = api_key
 
-    # 处理文件上传
+    # 处理文件上传（多轮对话时文件可选）
     uploaded_files = files if files else ([file] if file else [])
-    if not uploaded_files:
-        raise HTTPException(status_code=400, detail="请上传视频文件")
-
     all_temp_paths = []
+    has_new_file = False
     for f in uploaded_files:
-        suffix = Path(f.filename).suffix if f.filename else ".mp4"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            shutil.copyfileobj(f.file, tmp)
-            all_temp_paths.append(tmp.name)
+        if f and f.filename:
+            has_new_file = True
+            suffix = Path(f.filename).suffix if f.filename else ".mp4"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                shutil.copyfileobj(f.file, tmp)
+                all_temp_paths.append(tmp.name)
 
     import threading
     from agent.streaming import (
@@ -1053,18 +1053,22 @@ async def agent_chat_stream(
         stream_queue = get_stream_queue()
         agent = get_video_agent()
         error_result = [None]
+        agent_result = [None]
         agent_finished = [False]
 
         def run_agent():
             try:
                 # 启用流式输出
                 set_streaming_enabled(True)
-                agent.process_video(
+                # 只有上传了新文件时才传 temp_video_path，否则使用会话中已有的视频
+                result = agent.process_video(
                     user_input=message,
-                    temp_video_path=all_temp_paths[0],
+                    temp_video_path=all_temp_paths[0] if has_new_file else None,
                     session_id=session_id,
                     video_files=all_temp_paths if len(all_temp_paths) > 1 else None,
                 )
+                # 保存结果供后续使用
+                agent_result[0] = result
             except Exception as e:
                 error_result[0] = str(e)
             finally:
@@ -1112,7 +1116,8 @@ async def agent_chat_stream(
                     await asyncio.sleep(0.05)
 
             # 发送完成事件
-            yield f"data: {json.dumps({'event': 'message_end', 'conversation_id': session_id or '', 'metadata': {}})}\n\n"
+            actual_session_id = agent_result[0].get('session_id') if agent_result[0] else session_id
+            yield f"data: {json.dumps({'event': 'message_end', 'conversation_id': actual_session_id or '', 'metadata': {}})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"

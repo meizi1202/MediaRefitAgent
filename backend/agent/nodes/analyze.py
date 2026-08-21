@@ -1,5 +1,11 @@
 """
 意图分析 Node
+
+新增技能步骤：
+1. 在 execute.py 添加 execute_xxx 函数
+2. 在 analyze.py FEATURE_TO_STEP 添加 "xxx": "execute_xxx"
+3. 在 routing.py FEATURE_TO_STEP 添加 "xxx": "execute_xxx"
+4. 在 frontend/src/stores/app.ts formatSelectedParams() 添加参数格式化
 """
 from datetime import datetime
 from typing import Optional
@@ -407,7 +413,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                     level_str = {"low": "大文件/低压缩", "medium": "中等压缩", "high": "小文件/高压缩"}.get(compression_level, "")
                     llm_response = f"好的，将视频压缩为{level_str}。"
                 else:
-                    llm_response = "请选择压缩级别：low（大文件/低压缩）、medium（中等压缩）、high（小文件/高压缩）"
+                    llm_response = "请选择压缩级别：低压缩（大文件）、中等压缩（中等文件）、高压缩（小文件）"
                 print(f"[DEBUG compress] sending message: {llm_response}")
                 _append_message(state, "assistant", llm_response)
                 return state
@@ -452,6 +458,23 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                     state["pending_question"] = None
                     state["current_step"] = "execute_trim"
 
+                _append_message(state, "assistant", llm_response)
+                return state
+
+            # 如果是视频拼接请求
+            if target_feature == "concat":
+                state["current_feature"] = "concat"
+                video_files = state.get("video_files") or []
+                keep_audio = parsed.get("keep_audio", True)
+                state["keep_audio"] = keep_audio
+                # 如果有2个以上文件且 LLM 没有提问，就立即执行
+                if len(video_files) >= 2 and "？" not in llm_response and "?" not in llm_response:
+                    state["all_params_provided"] = True
+                    state["pending_question"] = None
+                    state["current_step"] = "execute_concat"
+                else:
+                    state["all_params_provided"] = False
+                    state["pending_question"] = llm_response if llm_response else "请确认是否保留音频"
                 _append_message(state, "assistant", llm_response)
                 return state
 
@@ -537,6 +560,18 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     state["strategy_explicit"] = strategy_explicit
     state["ratio_explicit"] = ratio_explicit
     state["all_params_provided"] = all_params_provided
+
+    # 如果参数不完整且没有 pending_question，设置一个
+    if not all_params_provided and not state.get("pending_question"):
+        missing = []
+        if not orientation_explicit:
+            missing.append("方向")
+        if not ratio_explicit:
+            missing.append("比例")
+        if not strategy_explicit:
+            missing.append("策略")
+        if missing:
+            state["pending_question"] = f"请选择{'/'.join(missing)}"
 
     state["current_step"] = "detect_video"
 

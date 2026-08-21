@@ -57,19 +57,60 @@ def _extract_json(content: str) -> dict:
     if response_match:
         return {"response": response_match.group(1)}
 
-    return {}
+    # 方法3：降级 - 从原始内容中提取关键字段
+    result = {}
+
+    # 提取 orientation
+    if 'portrait' in content.lower() or '竖屏' in content:
+        result['target_orientation'] = 'portrait'
+        result['orientation_explicit'] = True
+    elif 'landscape' in content.lower() or '横屏' in content:
+        result['target_orientation'] = 'landscape'
+        result['orientation_explicit'] = True
+
+    # 提取 ratio
+    ratio_match = re.search(r'(9:16|4:5|1:1|16:9|21:9|4:3)', content)
+    if ratio_match:
+        result['target_ratio'] = ratio_match.group(1)
+        result['ratio_explicit'] = True
+
+    # 提取 strategy
+    if 'pad' in content.lower() or '填充黑边' in content:
+        result['strategy'] = 'pad'
+        result['strategy_explicit'] = True
+    elif 'crop' in content.lower() or '中心裁剪' in content:
+        result['strategy'] = 'crop'
+        result['strategy_explicit'] = True
+    elif 'smart_crop' in content.lower() or 'ai裁剪' in content.lower():
+        result['strategy'] = 'smart_crop'
+        result['strategy_explicit'] = True
+    elif 'stretch' in content.lower() or '拉伸' in content:
+        result['strategy'] = 'stretch'
+        result['strategy_explicit'] = True
+
+    # 提取 response（尽可能完整）
+    if result:
+        result['response'] = content.strip()
+
+    return result
 
 
 def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, history: list = None) -> dict:
     """使用 LLM 解析用户意图：先识别工具，再解析参数"""
+    print(f"[DEBUG parse_intent] called with user_input: {user_input}, history length: {len(history or [])}")
 
     # 构建上下文
     history_context = _build_history_context(history or [])
     video_info_text = _build_video_info_text(video_info)
 
     # ===== 第一步：识别工具 =====
-    tool_prompt = prompts.TOOL_RECOGNITION_PROMPT.format(user_input=user_input)
+    tool_prompt = prompts.TOOL_RECOGNITION_PROMPT.format(
+        history_context=history_context or "【无对话历史】",
+        user_input=user_input
+    )
+    print(f"[DEBUG TOOL] tool_prompt:\n{tool_prompt[:800]}")
     tool_result = llm._generate([{"role": "user", "content": tool_prompt}])
+    print(f"[DEBUG TOOL] tool_result: {tool_result.content}")
     target_feature = tool_result.content.strip().lower() if tool_result.content else "null"
 
     # ===== 第二步：根据工具解析参数 =====
@@ -94,8 +135,13 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
     param_result = llm._generate([{"role": "user", "content": param_prompt}])
     param_content = param_result.content or ""
 
+    # 调试日志
+    print(f"[DEBUG] param_prompt:\n{param_prompt[:500]}...")
+    print(f"[DEBUG] param_content:\n{param_content[:500]}")
+
     # 解析 JSON
     parsed = _extract_json(param_content)
+    print(f"[DEBUG] parsed: {parsed}")
 
     # 判断 all_params_provided
     all_params_provided = _check_params_provided(target_feature, parsed)

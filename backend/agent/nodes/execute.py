@@ -1,5 +1,11 @@
 """
 执行类 Node Functions
+
+新增技能步骤：
+1. 在 execute.py 添加 execute_xxx 函数
+2. 在 analyze.py FEATURE_TO_STEP 添加 "xxx": "execute_xxx"
+3. 在 routing.py FEATURE_TO_STEP 添加 "xxx": "execute_xxx"
+4. 在 frontend/src/stores/app.ts formatSelectedParams() 添加参数格式化
 """
 import json
 from datetime import datetime
@@ -205,7 +211,7 @@ def execute_concat(state: VideoAgentState) -> VideoAgentState:
         return state
 
     # 获取多文件列表
-    video_files = state.get("video_files", [video_path])
+    video_files = state.get("video_files") or [video_path]
     if len(video_files) < 2:
         state["error"] = "拼接至少需要2个视频文件"
         state["current_step"] = "confirm_complete"
