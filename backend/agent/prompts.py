@@ -16,8 +16,8 @@ VIDEO_INFO = """【视频信息】
 {video_info}"""
 
 # ============ 工具识别 ============
-TOOL_RECOGNITION_PROMPT = """【对话历史】
-{history_context}
+TOOL_RECOGNITION_PROMPT = """
+对话历史：{history_context}
 
 用户输入：{user_input}
 
@@ -41,7 +41,8 @@ TOOL_RECOGNITION_PROMPT = """【对话历史】
 # ============ convert 工具 ============
 CONVERT_PARAM_PROMPT = """【任务】解析视频转换需求
 
-{history_context}
+用户输入：{user_input}
+历史信息：{history_context}
 
 {video_info}
 
@@ -59,6 +60,7 @@ CONVERT_PARAM_PROMPT = """【任务】解析视频转换需求
 
 【示例】
 输入"转竖屏" -> {{"orientation_explicit":true,"strategy_explicit":false,"ratio_explicit":false,"target_orientation":"portrait","target_ratio":null,"strategy":null,"response":"已识别到您想转换为竖屏。请问选择哪个比例？9:16/4:5/1:1"}}
+输入"竖屏" -> {{"orientation_explicit":true,"strategy_explicit":false,"ratio_explicit":true,"target_orientation":"portrait","target_ratio":"9:16","strategy":null,"response":"好的，已选择9:16竖屏比例。请问选择哪个策略？填充黑边/中心裁剪/AI裁剪/拉伸"}}
 输入"转竖屏9:16" -> {{"orientation_explicit":true,"strategy_explicit":false,"ratio_explicit":true,"target_orientation":"portrait","target_ratio":"9:16","strategy":null,"response":"好的，已选择9:16竖屏比例。请问选择哪个策略？填充黑边/中心裁剪/AI裁剪/拉伸"}}
 输入"竖屏9:16" -> {{"orientation_explicit":true,"strategy_explicit":false,"ratio_explicit":true,"target_orientation":"portrait","target_ratio":"9:16","strategy":null,"response":"好的，已选择9:16竖屏比例。请问选择哪个策略？"}}
 输入"9:16" -> {{"orientation_explicit":true,"strategy_explicit":false,"ratio_explicit":true,"target_orientation":"portrait","target_ratio":"9:16","strategy":null,"response":"好的，已选择9:16竖屏比例。请问选择哪个策略？填充黑边/中心裁剪/AI裁剪/拉伸"}}
@@ -79,12 +81,12 @@ CONVERT_PARAM_PROMPT = """【任务】解析视频转换需求
 # ============ info 工具 ============
 INFO_PARAM_PROMPT = """【任务】获取视频信息
 
-{history_context}
+用户输入：{user_input}
+历史信息：{history_context}
 
 {video_info}
 
 ---
-用户输入：{user_input}
 
 【输出格式】
 {{"response":"助手回复"}}"""
@@ -92,13 +94,11 @@ INFO_PARAM_PROMPT = """【任务】获取视频信息
 # ============ compress 工具 ============
 COMPRESS_PARAM_PROMPT = """【任务】解析视频压缩需求
 
-{history_context}
+用户输入：{user_input}
+历史信息：{history_context}
 
-{video_info}
 
 ---
-用户输入：{user_input}
-
 
 级别：low=高质量大文件，medium=平衡，high=小体积低质量
 
@@ -110,15 +110,14 @@ COMPRESS_PARAM_PROMPT = """【任务】解析视频压缩需求
 # ============ trim 工具 ============
 TRIM_PARAM_PROMPT = """【任务】解析视频修剪需求
 
-{history_context}
+用户输入：{user_input}
+历史信息：{history_context}
 
 {video_info}
 
 ---
 
 时间格式：支持"30"(秒)、"0:30"(分:秒)、"1:30:00"(时:分:秒)
-
-用户输入：{user_input}
 
 【规则】用户已回答的用 explicit=true，未回答的用 explicit=false
 
@@ -144,7 +143,8 @@ CONCAT_PARAM_PROMPT = """【任务】解析视频拼接需求
 # ============ restore 工具 ============
 RESTORE_PARAM_PROMPT = """【任务】解析老视频修复需求
 
-{history_context}
+用户输入：{user_input}
+历史信息：{history_context}
 
 {video_info}
 
@@ -161,7 +161,8 @@ RESTORE_PARAM_PROMPT = """【任务】解析老视频修复需求
 # ============ highlight 工具 ============
 HIGHLIGHT_PARAM_PROMPT = """【任务】解析精彩片段提取需求
 
-{history_context}
+用户输入：{user_input}
+历史信息：{history_context}
 
 {video_info}
 
@@ -177,7 +178,8 @@ HIGHLIGHT_PARAM_PROMPT = """【任务】解析精彩片段提取需求
 # ============ transition 工具 ============
 TRANSITION_PARAM_PROMPT = """【任务】解析转场效果需求
 
-{history_context}
+用户输入：{user_input}
+历史信息：{history_context}
 
 {video_info}
 

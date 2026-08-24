@@ -28,7 +28,7 @@ def detect_video(state: VideoAgentState) -> VideoAgentState:
     if not video_path or not Path(video_path).exists():
         state["error"] = "视频文件不存在"
         state["current_step"] = "confirm_complete"
-        state["pending_question"] = None
+        # 不要清除 pending_question，让用户回答问题
         return state
 
     try:
@@ -42,8 +42,8 @@ def detect_video(state: VideoAgentState) -> VideoAgentState:
             "unknown": "未知",
         }.get(result.orientation, result.orientation)
 
-        # 只在横竖屏转换时显示视频方向信息
-        if state.get("current_feature") in (None, "convert", "orient"):
+        # 只在非 convert 功能时显示视频方向信息
+        if state.get("current_feature") not in ("convert", "orient"):
             _append_message(state, "assistant", f"检测到视频是{orientation_display}的。")
 
         # 只有 convert 类型才需要走 select_strategy，其他功能直接执行

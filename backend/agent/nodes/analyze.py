@@ -510,13 +510,14 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         target_feature = "transform"
 
     # 使用本地关键词解析补充 LLM 结果（如果用户明确提到则覆盖）
-    if local_parsed.get("orientation_explicit"):
+    # 只有当 local_parsed 明确检测到参数时才覆盖 LLM 结果
+    if local_parsed.get("orientation_explicit") and local_parsed.get("orientation"):
         target_orientation = local_parsed["orientation"]
         orientation_explicit = True
-    if local_parsed.get("strategy_explicit"):
+    if local_parsed.get("strategy_explicit") and local_parsed.get("strategy"):
         strategy = local_parsed["strategy"]
         strategy_explicit = True
-    if local_parsed.get("ratio_explicit"):
+    if local_parsed.get("ratio_explicit") and local_parsed.get("ratio"):
         ratio = local_parsed["ratio"]
         ratio_explicit = True
     if local_parsed.get("compression_explicit"):
@@ -532,8 +533,8 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         _append_message(state, "assistant", llm_response)
         return state
 
-    # 更新 all_params_provided
-    all_params_provided = orientation_explicit and strategy_explicit
+    # 更新 all_params_provided（convert 需要 orientation + ratio + strategy 都明确）
+    all_params_provided = orientation_explicit and strategy_explicit and ratio_explicit
 
     # 如果本地解析补充了参数且参数完整，生成正确的回复
     if all_params_provided and (local_parsed.get("orientation") or local_parsed.get("strategy") or local_parsed.get("ratio")):
@@ -561,8 +562,11 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     state["ratio_explicit"] = ratio_explicit
     state["all_params_provided"] = all_params_provided
 
-    # 如果参数不完整且没有 pending_question，设置一个
-    if not all_params_provided and not state.get("pending_question"):
+    # 如果参数完整，清除 pending_question；否则设置 pending_question
+    if all_params_provided:
+        state["pending_question"] = None
+        state["current_step"] = "detect_video"
+    else:
         missing = []
         if not orientation_explicit:
             missing.append("方向")
@@ -572,8 +576,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             missing.append("策略")
         if missing:
             state["pending_question"] = f"请选择{'/'.join(missing)}"
-
-    state["current_step"] = "detect_video"
+        state["current_step"] = "waiting_for_user"
 
     # 添加 LLM 的响应消息
     if llm_response:

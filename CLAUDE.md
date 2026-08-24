@@ -2,7 +2,7 @@
 
 视频横竖屏转换智能体，基于 FFmpeg + Langchain+LangGraph + FastAPI。
 
-## 功能
+> **方案文档**: 后续生成的方案设计文档统一放在 `DOC/` 目录下
 
 - **视频方向检测**：FFprobe 元数据 + ML 辅助判断
 - **横竖屏转换**：

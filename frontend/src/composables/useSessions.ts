@@ -29,6 +29,7 @@ export function useSessions() {
   }
 
   async function selectSession(sessionId: string) {
+    if (!sessionId) return;
     store.setCurrentSession(sessionId);
     const session = store.sessions.find(s => s.session_id === sessionId);
     if (session && session.messages.length === 0) {

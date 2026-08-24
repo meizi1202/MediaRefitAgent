@@ -9,8 +9,14 @@ from typing import Optional
 
 
 # API配置
-API_URL = os.environ.get("MINIMAX_API_URL", "https://api.minimax.chat/v1/text/chatcompletion_v2")
-MODEL_NAME = os.environ.get("MINIMAX_MODEL_NAME", "MiniMax-M2.7")
+API_URL = os.environ.get("MINIMAX_API_URL")
+MODEL_NAME = os.environ.get("MINIMAX_MODEL_NAME")
+
+# 验证必需的配置
+if not API_URL:
+    raise ValueError("环境变量 MINIMAX_API_URL 未配置")
+if not MODEL_NAME:
+    raise ValueError("环境变量 MINIMAX_MODEL_NAME 未配置")
 
 
 class SimpleResponse:
