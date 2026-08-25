@@ -105,7 +105,7 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
 
     # ===== 第一步：识别工具 =====
     tool_prompt = prompts.TOOL_RECOGNITION_PROMPT.format(
-        history_context=history_context or "【无对话历史】",
+        conversation_history=history_context or "【无对话历史】",
         user_input=user_input
     )
     print(f"[DEBUG TOOL] tool_prompt:\n{tool_prompt[:800]}")
@@ -125,9 +125,9 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
     template = prompts.TOOL_PROMPTS[target_feature]
 
     # 填充模板
+    print(f"[DEBUG] template has video_info: {'{video_info}' in template}")
     param_prompt = template.format(
-        history_context=history_context or "【无对话历史】",
-        video_info=video_info_text or "【无视频信息】",
+        conversation_history=history_context or "【无对话历史】",
         user_input=user_input,
     )
 
@@ -153,7 +153,7 @@ def _check_params_provided(target_feature: str, parsed: dict) -> bool:
     """检查参数是否完整"""
     check_map = {
         "compress": parsed.get("compression_explicit") and parsed.get("compression_level"),
-        "convert": parsed.get("orientation_explicit") and parsed.get("strategy_explicit"),
+        "convert": parsed.get("orientation_explicit") and parsed.get("strategy_explicit") and parsed.get("ratio_explicit"),
         "info": True,
         "trim": parsed.get("start_time_explicit") and parsed.get("end_time_explicit"),
         "concat": parsed.get("concat_explicit"),

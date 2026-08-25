@@ -30,6 +30,7 @@ def _append_message(state: VideoAgentState, role: str, content: str):
 
 # 功能到执行步骤的映射
 FEATURE_TO_STEP = {
+    "convert": "execute_transform",
     "compress": "execute_compress",
     "trim": "execute_trim",
     "concat": "execute_concat",
@@ -249,7 +250,11 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     """分析用户意图 - 使用 LLM 生成响应"""
     import os
 
-    user_input = state["user_input"]
+    # 优先级: new_user_input > combined_input > user_input
+    # new_user_input: 新一轮请求的用户输入（最高优先）
+    # combined_input: handle_user_response 拼接的上轮 pending_question + 用户回答
+    # user_input: 初始输入（降级用）
+    user_input = state.get("new_user_input") or state.get("combined_input") or state["user_input"]
     video_files = state.get("video_files") or []
 
     llm_response = ""
@@ -384,6 +389,17 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             strategy_explicit = parsed.get("strategy_explicit", False)
             ratio = parsed.get("target_ratio")
             ratio_explicit = parsed.get("ratio_explicit", False)
+            # 如果 LLM 返回了有效的 ratio 值（字符串如 "9:16"），设置 ratio_explicit 并转换为浮点数
+            if ratio:
+                if not ratio_explicit:
+                    ratio_explicit = True
+                # 转换字符串比例 "9:16" -> 0.5625
+                if isinstance(ratio, str) and ":" in ratio:
+                    try:
+                        w, h = ratio.split(":")
+                        ratio = int(w) / int(h)
+                    except (ValueError, ZeroDivisionError):
+                        pass
             # highlight 参数
             target_duration = parsed.get("target_duration", 60)
             target_duration_explicit = parsed.get("target_duration_explicit", False)
@@ -560,12 +576,17 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     state["orientation_explicit"] = orientation_explicit
     state["strategy_explicit"] = strategy_explicit
     state["ratio_explicit"] = ratio_explicit
+
+    # 重新计算 all_params_provided（关键词补充后需要重新检查）
+    all_params_provided = orientation_explicit and strategy_explicit and ratio_explicit
     state["all_params_provided"] = all_params_provided
+    print(f"[DEBUG analyze_intent] BEFORE pending_question check: orientation_explicit={orientation_explicit}, strategy_explicit={strategy_explicit}, ratio_explicit={ratio_explicit}, all_params_provided={all_params_provided}")
 
     # 如果参数完整，清除 pending_question；否则设置 pending_question
     if all_params_provided:
         state["pending_question"] = None
-        state["current_step"] = "detect_video"
+        # 设置 current_step 为 execute_transform，让 should_proceed 路由到执行节点
+        state["current_step"] = "execute_transform"
     else:
         missing = []
         if not orientation_explicit:
@@ -576,10 +597,18 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             missing.append("策略")
         if missing:
             state["pending_question"] = f"请选择{'/'.join(missing)}"
-        state["current_step"] = "waiting_for_user"
+        # 不设置 current_step，让 should_proceed 根据 pending_question 决定是否进入 waiting_for_user
+        # 这样 analyze_intent 的消息能在同一迭代中发送出去
 
     # 添加 LLM 的响应消息
     if llm_response:
         _append_message(state, "assistant", llm_response)
+
+    # 通用：参数完整时设置执行步骤（所有功能共用）
+    if all_params_provided:
+        _complete_params_provided(state, state.get("current_feature"))
+    else:
+        # 参数不完整时设置 current_step 为 None，让 should_proceed 能路由到 waiting_for_user
+        state["current_step"] = None
 
     return state

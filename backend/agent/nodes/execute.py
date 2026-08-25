@@ -436,8 +436,5 @@ def execute_editor(state: VideoAgentState) -> VideoAgentState:
 
 def confirm_complete(state: VideoAgentState) -> VideoAgentState:
     """确认完成"""
-    # 只有在真正完成时才清除 pending_question
-    # 如果还在等待用户输入（waiting_for_user），保留 pending_question
-    if state.get("current_step") != "waiting_for_user":
-        state["pending_question"] = None
+    # pending_question 由 handle_user_response 清除，不要在这里清除
     return state

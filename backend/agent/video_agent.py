@@ -2,7 +2,7 @@
 视频转换 Agent - 基于 LangGraph
 
 状态机设计：
-analyze_intent → detect_video → select_strategy → execute_transform → confirm_complete
+analyze_intent → waiting_for_user ↔ handle_user_response → execute_* → confirm_complete
 
 支持多轮对话，可以记忆上下文
 
@@ -197,7 +197,6 @@ def create_video_agent_graph():
 
     # Import nodes here to avoid circular imports
     from agent.nodes.analyze import analyze_intent
-    from agent.nodes.detect import detect_video
     from agent.nodes.execute import (
         execute_transform,
         execute_compress,
@@ -209,14 +208,12 @@ def create_video_agent_graph():
         execute_editor,
         confirm_complete,
     )
-    from agent.nodes.routing import should_proceed, handle_user_response, select_strategy
+    from agent.nodes.routing import should_proceed, handle_user_response
 
     graph = StateGraph(VideoAgentState)
 
     # 添加节点
     graph.add_node("analyze_intent", analyze_intent)
-    graph.add_node("detect_video", detect_video)
-    graph.add_node("select_strategy", select_strategy)
     graph.add_node("execute_transform", execute_transform)
     graph.add_node("execute_compress", execute_compress)
     graph.add_node("execute_concat", execute_concat)
@@ -229,22 +226,45 @@ def create_video_agent_graph():
     graph.add_node("handle_user_response", handle_user_response)
     graph.add_node("waiting_for_user", lambda state: state)  # 暂停等待用户输入
 
-    # 设置入口
-    graph.set_entry_point("analyze_intent")
+    # 入口节点：根据 current_step 决定路由
+    def entry_node(state: VideoAgentState) -> VideoAgentState:
+        return state
 
-    # 主流程
-    graph.add_edge("analyze_intent", "detect_video")
-    graph.add_edge("detect_video", "select_strategy")
-    graph.add_edge("handle_user_response", "select_strategy")
+    graph.add_node("__entry__", entry_node)
+    graph.set_entry_point("__entry__")
 
-    # waiting_for_user 节点：直接结束让用户补充信息，下次通过 continue_conversation 处理
-    graph.add_edge("waiting_for_user", "confirm_complete")
+    # __entry__ 条件边：根据 current_step 决定入口节点
+    def route_from_entry(state: VideoAgentState) -> str:
+        current_step = state.get("current_step")
+        pending_question = state.get("pending_question")
+        combined_input = state.get("combined_input")
+        print(f"[DEBUG route_from_entry] current_step={current_step}, pending_question={pending_question}, combined_input={combined_input}")
+        # combined_input 存在说明上轮回答了 pending_question，需要进入 handle_user_response 处理
+        if combined_input:
+            return "handle_user_response"
+        # pending_question 存在说明上轮结束等待用户回答下一轮
+        if pending_question:
+            return "handle_user_response"
+        # current_step 是 waiting_for_user 也说明等待用户回答
+        if current_step == "waiting_for_user":
+            return "handle_user_response"
+        return "analyze_intent"
 
-    # select_strategy 条件边
     graph.add_conditional_edges(
-        "select_strategy",
+        "__entry__",
+        route_from_entry,
+        {
+            "handle_user_response": "handle_user_response",
+            "analyze_intent": "analyze_intent",
+        }
+    )
+
+    # analyze_intent 条件边：所有功能统一经 should_proceed 路由
+    graph.add_conditional_edges(
+        "analyze_intent",
         should_proceed,
         {
+            "analyze_intent": "analyze_intent",
             "execute_transform": "execute_transform",
             "execute_compress": "execute_compress",
             "execute_concat": "execute_concat",
@@ -253,10 +273,14 @@ def create_video_agent_graph():
             "execute_restore": "execute_restore",
             "execute_info": "execute_info",
             "execute_editor": "execute_editor",
-            "waiting_for_user": "handle_user_response",
+            "handle_user_response": "handle_user_response",
+            "waiting_for_user": "waiting_for_user",
             "confirm_complete": "confirm_complete",
         }
     )
+
+    # waiting_for_user 节点：直接结束，等待下一轮请求
+    graph.add_edge("waiting_for_user", "confirm_complete")
 
     # 执行节点完成后直接结束
     graph.add_edge("execute_trim", "confirm_complete")
@@ -265,13 +289,20 @@ def create_video_agent_graph():
     graph.add_edge("execute_info", "confirm_complete")
     graph.add_edge("execute_editor", "confirm_complete")
 
-    # handle_user_response 条件边
+    # handle_user_response 节点：处理完用户回答后，根据 current_step 决定下一步
+    def route_from_handle_user_response(state: VideoAgentState) -> str:
+        next_step = state.get("current_step", "")
+        execute_nodes = {"execute_transform", "execute_compress", "execute_concat",
+                         "execute_trim", "execute_condense", "execute_restore",
+                         "execute_info", "execute_editor"}
+        if next_step in execute_nodes:
+            return next_step
+        return "confirm_complete"
+
     graph.add_conditional_edges(
         "handle_user_response",
-        should_proceed,
+        route_from_handle_user_response,
         {
-            "detect_video": "detect_video",
-            "select_strategy": "select_strategy",
             "execute_transform": "execute_transform",
             "execute_compress": "execute_compress",
             "execute_concat": "execute_concat",
@@ -280,7 +311,6 @@ def create_video_agent_graph():
             "execute_restore": "execute_restore",
             "execute_info": "execute_info",
             "execute_editor": "execute_editor",
-            "waiting_for_user": "waiting_for_user",
             "confirm_complete": "confirm_complete",
         }
     )
@@ -386,32 +416,41 @@ class VideoAgent:
         if session_id and session_id in self.sessions:
             state = self.sessions[session_id]
             old_messages_count = len(state.get("messages", []))
-            # 如果 current_step 是 waiting_for_user，不需要设置 user_input
-            # handle_user_response 会使用原始 user_input 进行处理
-            if state.get("current_step") != "waiting_for_user":
-                state["user_input"] = user_input
+            print(f"[DEBUG process_video] Turn 2 session found, current_step={state.get('current_step')}, pending_question={state.get('pending_question')}")
+            # 始终传递新输入，通过 new_user_input 字段让 handle_user_response 读取
+            state["new_user_input"] = user_input
+            # 清除 combined_input，避免 analyze_intent 使用旧输入
+            state["combined_input"] = None
+            print(f"[DEBUG process_video] new_user_input set to: {user_input}, combined_input cleared")
             # 只有上传了新文件时才更新视频路径
             if temp_video_path:
                 state["temp_video_path"] = temp_video_path
             if video_files:
                 state["video_files"] = video_files
-            # 如果有待回答的问题，或者 current_step 是 waiting_for_user，设置 current_step 为 waiting_for_user 让流程走到 handle_user_response
-            if state.get("pending_question") or state.get("current_step") == "waiting_for_user":
+            # 如果有待回答的问题，设置 current_step 为 waiting_for_user 让流程走到 handle_user_response
+            # 注意：如果 handle_user_response 已经设置了 current_step = "analyze_intent"，则不覆盖
+            if state.get("current_step") != "analyze_intent":
+                if state.get("pending_question") or state.get("current_step") == "waiting_for_user":
+                    state["current_step"] = "waiting_for_user"
+                    # 保留已解析的参数状态，不重置
+                else:
+                    # 重置关键状态，让流程重新走意图分析
+                    state["current_step"] = "analyze_intent"
+                    state["current_feature"] = None
+                    state["all_params_provided"] = False
+                    state["error"] = None
+                    # 重置参数相关状态，避免被旧值影响
+                    state["compression_level"] = None
+                    state["compression_explicit"] = False
+                    state["orientation_explicit"] = False
+                    state["strategy_explicit"] = False
+                    state["ratio_explicit"] = False
+            # 如果 pending_question 存在，不要重置 current_step（让 route_from_entry 处理路由）
+            if state.get("pending_question"):
+                # pending_question 存在时，强制设置 current_step 为 waiting_for_user
                 state["current_step"] = "waiting_for_user"
-                # 保留已解析的参数状态，不重置
-            else:
-                # 重置关键状态，让流程重新走意图分析
-                state["current_step"] = "analyze_intent"
-                state["current_feature"] = None
-                state["all_params_provided"] = False
-                state["error"] = None
-                # 重置参数相关状态，避免被旧值影响
-                state["compression_level"] = None
-                state["compression_explicit"] = False
-                state["orientation_explicit"] = False
-                state["strategy_explicit"] = False
-                state["ratio_explicit"] = False
         else:
+            print(f"[DEBUG process_video] Session {session_id} NOT FOUND in sessions. Available: {list(self.sessions.keys())}")
             # 创建会话目录并持久化视频
             actual_session_id = session_id or datetime.now().strftime("%Y%m%d%H%M%S")
             session_dir = SESSIONS_DIR / actual_session_id
@@ -476,11 +515,7 @@ class VideoAgent:
 
         state = self.sessions[session_id]
         state["user_input"] = user_input
-
-        # 如果当前状态是 waiting_for_user，说明用户在回答 pending_question
-        # 应该直接路由到 handle_user_response 处理
-        if state.get("current_step") == "waiting_for_user":
-            state["current_step"] = "waiting_for_user"
+        print(f"[DEBUG continue_conversation] session_id={session_id}, user_input={user_input}, current_step={state.get('current_step')}, pending_question={state.get('pending_question')}")
 
         result = self.graph.invoke(state)
 
