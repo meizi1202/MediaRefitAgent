@@ -238,14 +238,21 @@ def create_video_agent_graph():
         current_step = state.get("current_step")
         pending_question = state.get("pending_question")
         combined_input = state.get("combined_input")
-        print(f"[DEBUG route_from_entry] current_step={current_step}, pending_question={pending_question}, combined_input={combined_input}")
+        print(f"[DEBUG route_from_entry] ENTER current_step={current_step}, pending_question={pending_question}, combined_input={combined_input}")
         # combined_input 存在说明上轮回答了 pending_question，需要进入 handle_user_response 处理
         if combined_input:
+            print(f"[DEBUG route_from_entry] -> handle_user_response (combined_input exists)")
             return "handle_user_response"
         # pending_question 存在说明上轮结束等待用户回答下一轮
         if pending_question:
+            print(f"[DEBUG route_from_entry] -> handle_user_response (pending_question exists)")
             return "handle_user_response"
         # current_step 是 waiting_for_user 也说明等待用户回答
+        if current_step == "waiting_for_user":
+            print(f"[DEBUG route_from_entry] -> handle_user_response (current_step=waiting_for_user)")
+            return "handle_user_response"
+        print(f"[DEBUG route_from_entry] -> analyze_intent (default)")
+        return "analyze_intent"
         if current_step == "waiting_for_user":
             return "handle_user_response"
         return "analyze_intent"
@@ -297,6 +304,9 @@ def create_video_agent_graph():
                          "execute_info", "execute_editor"}
         if next_step in execute_nodes:
             return next_step
+        # 仍有缺失参数，等待用户下一轮回答
+        if next_step == "waiting_for_user":
+            return "waiting_for_user"
         return "confirm_complete"
 
     graph.add_conditional_edges(
@@ -311,6 +321,7 @@ def create_video_agent_graph():
             "execute_restore": "execute_restore",
             "execute_info": "execute_info",
             "execute_editor": "execute_editor",
+            "waiting_for_user": "waiting_for_user",
             "confirm_complete": "confirm_complete",
         }
     )
@@ -434,21 +445,23 @@ class VideoAgent:
                     state["current_step"] = "waiting_for_user"
                     # 保留已解析的参数状态，不重置
                 else:
-                    # 重置关键状态，让流程重新走意图分析
-                    state["current_step"] = "analyze_intent"
-                    state["current_feature"] = None
-                    state["all_params_provided"] = False
-                    state["error"] = None
-                    # 重置参数相关状态，避免被旧值影响
-                    state["compression_level"] = None
-                    state["compression_explicit"] = False
-                    state["orientation_explicit"] = False
-                    state["strategy_explicit"] = False
-                    state["ratio_explicit"] = False
-            # 如果 pending_question 存在，不要重置 current_step（让 route_from_entry 处理路由）
-            if state.get("pending_question"):
-                # pending_question 存在时，强制设置 current_step 为 waiting_for_user
-                state["current_step"] = "waiting_for_user"
+                    # pending_question 为 None，检查是否有明确参数
+                    # 如果有，说明用户在修改参数，应该走 handle_user_response
+                    if (state.get("orientation_explicit") or state.get("ratio_explicit")
+                        or state.get("strategy_explicit") or state.get("compression_explicit")):
+                        state["current_step"] = "waiting_for_user"
+                    else:
+                        # 重置关键状态，让流程重新走意图分析
+                        state["current_step"] = "analyze_intent"
+                        state["current_feature"] = None
+                        state["all_params_provided"] = False
+                        state["error"] = None
+                        # 重置参数相关状态，避免被旧值影响
+                        state["compression_level"] = None
+                        state["compression_explicit"] = False
+                        state["orientation_explicit"] = False
+                        state["strategy_explicit"] = False
+                        state["ratio_explicit"] = False
         else:
             print(f"[DEBUG process_video] Session {session_id} NOT FOUND in sessions. Available: {list(self.sessions.keys())}")
             # 创建会话目录并持久化视频

@@ -46,14 +46,24 @@ MediaRefitAgent 是一个基于 LangGraph 状态机的多轮对话式视频处�
 ```
 route_from_entry(state):
   ┌─────────────────────────────────────────────────────────────┐
-  │ 条件: current_step == "waiting_for_user"                    │
-  │       OR (pending_question 存在 AND combined_input 不存在)   │
+  │ 条件1: combined_input 存在                                  │
+  │         → "handle_user_response"                            │
   └─────────────────────────┬───────────────────────────────────┘
-                            │ True
-                            ▼
-                   "handle_user_response"
-                            │
-                            │ False
+  ┌─────────────────────────────────────────────────────────────┐
+  │ 条件2: pending_question 存在                                 │
+  │         → "handle_user_response"                            │
+  └─────────────────────────┬───────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────┐
+  │ 条件3: current_step == "waiting_for_user"                   │
+  │         → "handle_user_response"                            │
+  └─────────────────────────┬───────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────┐
+  │ 条件4: pending_question 为 None，但 state 中已有明确参数    │
+  │       (orientation_explicit / ratio_explicit /             │
+  │        strategy_explicit / compression_explicit)            │
+  │         → "handle_user_response"                            │
+  │       说明：execute_* 后用户修改参数，应走预解析而非 LLM     │
+  └─────────────────────────┬───────────────────────────────────┘
                             ▼
                    "analyze_intent"
 ```
@@ -101,9 +111,14 @@ should_proceed(state):
 ```
 route_from_handle_user_response(state):
   ┌─────────────────────────────────────────────────────────────┐
-  │ 条件: current_step in execute_*                             │
+  │ 条件1: current_step in execute_*                            │
   │         → 执行对应 execute 节点                              │
   │       (execute_transform / execute_compress / ...)          │
+  └─────────────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────┐
+  │ 条件2: current_step == "waiting_for_user"                   │
+  │         → "waiting_for_user"                                │
+  │       (仍有缺失参数，等待用户下一轮回答)                      │
   └─────────────────────────────────────────────────────────────┘
   ┌─────────────────────────────────────────────────────────────┐
   │ 否则 → "confirm_complete"                                    │
@@ -140,43 +155,50 @@ confirm_complete      → END
                               ┌───────────────────┴────────────────────────┐
                               │  route_from_entry 条件边                     │
                               │                                           │
-                              │  current_step == "waiting_for_user"        │
-                              │  OR (pending_question AND                  │
-                              │      NOT combined_input)                   │
+                              │  条件1: combined_input 存在                  │
+                              │  条件2: pending_question 存在                 │
+                              │  条件3: current_step == "waiting_for_user"   │
+                              │  条件4: 已有明确参数（execute后修改参数）       │
+                              │       (orientation/ratio/strategy_explicit)  │
                               ▼                                           ▼
                    ┌──────────────────────┐              ┌──────────────────────┐
                    │  handle_user_response │              │     analyze_intent    │
-                   │  (处理用户回答)        │              │     (分析意图)         │
+                   │  (预解析参数)          │              │     (分析意图)         │
                    └──────────┬───────────┘              └──────────┬───────────┘
                               │                                   │
           ┌───────────────────┼───────────────────┐                │
           │ route_from_       │                   │                │
-          │ handle_user_      │                   │                │
+          │ handle_user_     │                   │                │
           │ response          │                   │                │
           ▼                   ▼                   │         ┌──────┴──────────────┐
-   ┌─────────────┐  ┌─────────────────┐         │         │   should_proceed      │
-   │ execute_*   │  │confirm_complete │         │         │   条件边 (见上方详细)   │
-   │ (执行节点)   │  │ (结束)           │         │         └───────────┬───────────┘
-   └──────┬──────┘  └─────────────────┘         │                     │
-          │                                      │                     │
-          │                                      │         ┌────────────┴────────────┐
-          │                                      │         │                         │
-          │                                      │         ▼                         ▼
-          │                                      │  ┌───────────┐  ┌─────────────────┐
-          │                                      │  │ execute_* │  │ waiting_for_user │
-          │                                      │  │ (执行节点) │  │ (暂停等待)        │
-          │                                      │  └─────┬─────┘  └────────┬────────┘
-          │                                      │        │                 │
-          │                                      │        │                 ▼
-          │                                      │        │        confirm_complete
-          │                                      │        │              │
-          │                                      │        │              ▼
-          │                                      │        └──────► confirm_complete
-          │                                      │                       │
-          │                                      │                       ▼
-          │                                      │                      END
-          │                                      │
-          └──────────────────────────────────────┘
+   ┌─────────────┐  ┌─────────────────┐  ┌──────────────┐   │   should_proceed      │
+   │ execute_*   │  │waiting_for_user │  │confirm_      │   │   条件边 (见上方详细)   │
+   │ (执行节点)   │  │ (暂停等待)       │  │ complete     │   └───────────┬───────────┘
+   └──────┬──────┘  └────────┬────────┘  └──────────────┘                │
+          │                   │                                       │
+          │                   ▼                                       │
+          │            confirm_complete                                │
+          │                   │                                       │
+          │                   └───────────────────────────────────────┤
+          │                                                           │
+          │                                          ┌────────────────┴────────────────┐
+          │                                          │                             │
+          │                                          ▼                             ▼
+          │                                   ┌───────────┐              ┌─────────────────┐
+          │                                   │ execute_* │              │ waiting_for_user │
+          │                                   │ (执行节点) │              │ (暂停等待)        │
+          │                                   └─────┬─────┘              └────────┬────────┘
+          │                                         │                           │
+          │                                         │                           ▼
+          │                                         │                    confirm_complete
+          │                                         │                          │
+          │                                         │                          ▼
+          │                                         └────────────► confirm_complete
+          │                                                              │
+          │                                                              ▼
+          │                                                             END
+          │
+          └──────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -189,6 +211,7 @@ confirm_complete      → END
 | **缺策略参数** | `__entry__` → `analyze_intent` → `waiting_for_user` → `confirm_complete` → END |
 | **用户回答策略** | `__entry__` → `handle_user_response` → `execute_transform` → `confirm_complete` → END |
 | **多轮追问** | `__entry__` → `analyze_intent` → `waiting_for_user` → `handle_user_response` → `waiting_for_user` → ... → `execute_*` → END |
+| **execute后修改参数** | `__entry__` → `handle_user_response`（路由到预解析）→ `execute_*` → END |
 
 ## 详细设计
 
@@ -353,13 +376,14 @@ def _parse_answer_params(user_input: str, feature: str) -> dict:
             "9:16": (0.5625, "portrait"), "4:5": (0.8, "portrait"), "1:1": (1.0, "portrait"),
             "16:9": (1.7778, "landscape"), "21:9": (2.3333, "landscape"), "4:3": (1.3333, "landscape"),
         }
-        # 策略解析
-        strategy_map = {
-            "填充黑边": "pad", "pad": "pad",
-            "中心裁剪": "crop", "crop": "crop",
-            "智能裁剪": "smart_crop", "ai裁剪": "smart_crop",
-            "拉伸": "stretch",
-        }
+        # 策略解析（优先级高的在前，避免被通用词覆盖）
+        strategy_map = [
+            ("拉伸填充", "stretch"), ("拉伸", "stretch"),
+            ("不要填充", "stretch"), ("不要黑边", "stretch"),
+            ("填充黑边", "pad"), ("留边", "pad"), ("保持完整", "pad"),
+            ("中心裁剪", "crop"),
+            ("智能裁剪", "smart_crop"), ("AI裁剪", "smart_crop"),
+        ]
     elif feature == "compress":
         level_map = {"低": "low", "中": "medium", "高": "high"}
     # ...
@@ -368,23 +392,28 @@ def _parse_answer_params(user_input: str, feature: str) -> dict:
 #### 2.4 处理流程
 
 ```
-用户回答（例："9:16"）
+用户回答到达（new_user_input）
         │
         ▼
 ┌─────────────────────────────┐
-│ 1. 解析 pending_question     │ → "请选择比例/策略" → 缺失参数: ["ratio", "orientation"]
-│    获取缺失参数列表           │
+│ 1. 关键词预解析用户回答     │ → "拉伸填充" → {strategy: "stretch", strategy_explicit: True}
+│    _parse_answer_params()  │   始终解析，支持修改已有参数
 └─────────────┬───────────────┘
               │
               ▼
 ┌─────────────────────────────┐
-│ 2. 关键词预解析用户回答     │ → "9:16" → {target_ratio: 0.5625, orientation_explicit: True, ...}
-│    _parse_answer_params()  │
+│ 2. 将解析结果写入 state      │   parsed 覆盖已有值（实现参数修改）
 └─────────────┬───────────────┘
               │
               ▼
 ┌─────────────────────────────┐
-│ 3. 检查参数是否完整          │
+│ 3. 重新计算剩余缺失参数      │
+│    _get_missing_params()    │
+└─────────────┬───────────────┘
+              │
+              ▼
+┌─────────────────────────────┐
+│ 4. 检查参数是否完整          │
 │    _check_all_params_provided│
 └─────────────┬───────────────┘
               │
@@ -394,46 +423,25 @@ def _parse_answer_params(user_input: str, feature: str) -> dict:
   完整              仍缺失
      │                 │
      ▼                 ▼
-current_step =          current_step = "analyze_intent"
-"execute_transform"     （设置 combined_input，继续 LLM 解析）
+current_step =       pending_question = 剩余缺失参数
+"execute_*"          发送追问消息
+                     current_step = "waiting_for_user"
 ```
 
-#### 2.5 代码实现
+#### 2.5 pending_question 动态更新机制
 
-```python
-def handle_user_response(state: VideoAgentState) -> VideoAgentState:
-    user_input = state.get("new_user_input") or state["user_input"]
-    pending_question = state.get("pending_question")
-    feature = state.get("current_feature")
+`pending_question` 会随着用户回答动态更新：
+- Turn 1: "转竖屏" → `pending_question = "请选择比例/策略"`
+- Turn 2: "9:16" → `pending_question = "请选择策略"`（比例已补全）
+- Turn 3: "拉伸填充" → `pending_question = None`（参数完整，执行）
 
-    if not pending_question or not feature:
-        state["current_step"] = "analyze_intent"
-        return state
+#### 2.6 execute_* 后修改参数的路由
 
-    # 1. 获取缺失参数
-    missing_params = _get_missing_params(feature, pending_question)
-
-    if missing_params:
-        # 2. 关键词预解析
-        parsed = _parse_answer_params(user_input, feature)
-        for key, val in parsed.items():
-            state[key] = val
-
-        # 3. 检查参数完整性
-        if _check_all_params_provided(feature, state):
-            execute_node = FEATURE_TO_EXECUTE.get(feature)
-            state["current_step"] = execute_node
-            state["combined_input"] = None
-            state["new_user_input"] = None
-            return state
-
-    # 仍缺失或无法预解析，继续 LLM 解析
-    state["combined_input"] = f"{pending_question}\n用户回答：{user_input}"
-    state["pending_question"] = None
-    state["new_user_input"] = None
-    state["current_step"] = "analyze_intent"
-    return state
-```
+当 `execute_*` 完成后，用户再次输入进行参数修改：
+- `pending_question = None`（已清除）
+- `route_from_entry` 检测到 `state` 中已有 `orientation_explicit=True` 等明确参数
+- 路由到 `handle_user_response` 而非 `analyze_intent`
+- `handle_user_response` 仅用关键词预解析当前输入，不会覆盖已有的参数值
 
 ---
 
@@ -570,6 +578,35 @@ handle_user_response
 
 execute_compress
   → confirm_complete
+```
+
+### 场景4: execute_* 后修改参数
+
+```
+execute_transform 完成
+  → pending_question = None
+  → confirm_complete → END
+
+---
+用户: "改为拉伸填充"
+
+process_video
+  → new_user_input = "改为拉伸填充"
+  → pending_question = None, combined_input = None
+
+route_from_entry
+  → pending_question 为 None，但 state 中已有
+    orientation_explicit=True, ratio_explicit=True
+  → 路由到 handle_user_response
+
+handle_user_response
+  → 解析 "拉伸填充" → strategy="stretch", strategy_explicit=True
+  → all_params_check = True（orientation/ratio/strategy 全部 explicit）
+  → current_step = "execute_transform"
+  → pending_question = None
+
+execute_transform
+  → confirm_complete → END
 ```
 
 ---

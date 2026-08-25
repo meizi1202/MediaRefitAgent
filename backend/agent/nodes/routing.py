@@ -60,13 +60,27 @@ def _parse_answer_params(user_input: str, feature: str) -> dict:
                 break
 
         # 解析策略
-        strategy_map = {
-            "填充黑边": "pad", "pad": "pad",
-            "中心裁剪": "crop", "crop": "crop",
-            "智能裁剪": "smart_crop", "ai裁剪": "smart_crop",
-            "拉伸": "stretch",
-        }
-        for kw, strat in strategy_map.items():
+        # 注意：更具体的关键词要放在前面，避免被更短的通用词匹配
+        strategy_map = [
+            # 拉伸策略（优先级最高，用户明确说要拉伸）
+            ("拉伸填充", "stretch"),
+            ("拉伸", "stretch"),
+            ("不要填充", "stretch"),  # "不要填充黑边" → stretch
+            ("不要黑边", "stretch"),   # "不要黑边" → stretch
+            # 填充策略
+            ("填充黑边", "pad"),
+            ("留边", "pad"),
+            ("保持完整", "pad"),
+            ("pad", "pad"),
+            # 裁剪策略
+            ("中心裁剪", "crop"),
+            ("crop", "crop"),
+            # 智能裁剪
+            ("智能裁剪", "smart_crop"),
+            ("ai裁剪", "smart_crop"),
+            ("AI裁剪", "smart_crop"),
+        ]
+        for kw, strat in strategy_map:
             if kw in text:
                 result["strategy"] = strat
                 result["strategy_explicit"] = True
@@ -137,81 +151,87 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     feature = state.get("current_feature")
 
     print(f"[DEBUG handle_user_response] ENTER user_input={user_input}, pending_question={pending_question}, feature={feature}")
+    print(f"[DEBUG handle_user_response] state: orient_explicit={state.get('orientation_explicit')}, ratio_explicit={state.get('ratio_explicit')}, strategy_explicit={state.get('strategy_explicit')}")
 
     if not pending_question or not feature:
-        # 无法预解析，设置 current_step 为 analyze_intent 继续 LLM 解析
-        state["current_step"] = "analyze_intent"
-        return state
+        # pending_question 不存在但 state 中已有明确参数
+        # 说明是 execute_* 后用户修改参数，应该走预解析而非 LLM
+        has_explicit_params = (
+            state.get("orientation_explicit") or state.get("ratio_explicit")
+            or state.get("strategy_explicit") or state.get("compression_explicit")
+        )
+        if not has_explicit_params:
+            # 没有任何明确参数，退回到 analyze_intent 继续 LLM 解析
+            print(f"[DEBUG handle_user_response] -> analyze_intent (no explicit params)")
+            state["current_step"] = "analyze_intent"
+            return state
+        # 有明确参数，继续走预解析流程
+        print(f"[DEBUG handle_user_response] -> continue parsing (has explicit params)")
 
-    # 1. 找出缺失的参数（基于实际状态判断）
-    missing_params = _get_missing_params(feature, state)
-    print(f"[DEBUG handle_user_response] missing_params={missing_params}")
+    # 1. 始终用关键词预解析用户回答（支持用户修改已有参数）
+    parsed = _parse_answer_params(user_input, feature)
+    print(f"[DEBUG handle_user_response] parsed={parsed}")
 
-    if missing_params:
-        # 2. 用关键词预解析用户回答
-        parsed = _parse_answer_params(user_input, feature)
-        print(f"[DEBUG handle_user_response] parsed={parsed}")
+    # 2. 将解析结果写入 state
+    for key, val in parsed.items():
+        state[key] = val
 
-        # 3. 将解析结果写入 state
-        for key, val in parsed.items():
-            state[key] = val
+    # 3. 重新计算缺失参数（基于更新后的 state）
+    remaining_missing = _get_missing_params(feature, state)
+    print(f"[DEBUG handle_user_response] remaining_missing={remaining_missing}")
 
-        # 4. 重新计算缺失参数（基于更新后的 state）
-        remaining_missing = _get_missing_params(feature, state)
-        print(f"[DEBUG handle_user_response] remaining_missing={remaining_missing}")
+    # 4. 检查参数是否完整
+    all_params_check = _check_all_params_provided(feature, state)
+    print(f"[DEBUG handle_user_response] all_params_check={all_params_check}, orientation_explicit={state.get('orientation_explicit')}, ratio_explicit={state.get('ratio_explicit')}, strategy_explicit={state.get('strategy_explicit')}")
+    if all_params_check:
+        # 参数完整，直接路由到执行节点
+        state["pending_question"] = None  # 清除待问问题
+        execute_node = FEATURE_TO_EXECUTE.get(feature)
+        if execute_node:
+            state["current_step"] = execute_node
+            print(f"[DEBUG handle_user_response] -> {execute_node} (all params provided)")
+            # 清除 combined_input 和 new_user_input
+            state["combined_input"] = None
+            state["new_user_input"] = None
+            return state
 
-        # 5. 更新 pending_question 为剩余缺失参数（仅针对 convert/compress/trim 等多参数功能）
-        if remaining_missing:
-            if feature == "convert":
-                missing_labels = []
-                if "orientation" in remaining_missing:
-                    missing_labels.append("方向")
-                if "ratio" in remaining_missing:
-                    missing_labels.append("比例")
-                if "strategy" in remaining_missing:
-                    missing_labels.append("策略")
+    # 5. 更新 pending_question 为剩余缺失参数
+    from agent.types import ConversationMessage
+    from datetime import datetime
+    if remaining_missing and feature == "convert":
+        missing_labels = []
+        # 只有当参数在 state 中也是缺失时，才加入追问列表
+        if "orientation" in remaining_missing and not state.get("orientation_explicit"):
+            missing_labels.append("方向")
+        if "ratio" in remaining_missing and not state.get("ratio_explicit"):
+            missing_labels.append("比例")
+        if "strategy" in remaining_missing and not state.get("strategy_explicit"):
+            missing_labels.append("策略")
+
+        # 计算之前的 pending_question 对应的缺失参数列表（用于比较）
+        pending_question_missing_labels = []
+        if pending_question:
+            if "比例" in pending_question or "方向" in pending_question:
+                pending_question_missing_labels.append("方向")
+            if "比例" in pending_question:
+                pending_question_missing_labels.append("比例")
+            if "策略" in pending_question:
+                pending_question_missing_labels.append("策略")
+
+        if missing_labels:
+            # 如果追问的参数和之前一样（没有新参数被提供），直接进入执行而非追问
+            if set(missing_labels) == set(pending_question_missing_labels):
+                # pending_question 没变化，用户只修改了其中一个参数
+                # 直接认为参数已完整
+                state["pending_question"] = None
+                execute_node = FEATURE_TO_EXECUTE.get(feature)
+                if execute_node:
+                    state["current_step"] = execute_node
+                    state["combined_input"] = None
+                    state["new_user_input"] = None
+                    return state
+            else:
                 state["pending_question"] = f"请选择{'/'.join(missing_labels)}"
-            elif feature == "compress":
-                state["pending_question"] = "请选择压缩级别"
-            elif feature == "trim":
-                missing_labels = []
-                if "start_time" in remaining_missing:
-                    missing_labels.append("开始时间")
-                if "end_time" in remaining_missing:
-                    missing_labels.append("结束时间")
-                state["pending_question"] = f"请提供{'和'.join(missing_labels)}"
-        else:
-            # 仍有缺失参数，设置 pending_question 等待下一轮用户回答
-            state["pending_question"] = None
-
-        # 6. 检查参数是否完整
-        all_params_check = _check_all_params_provided(feature, state)
-        print(f"[DEBUG handle_user_response] all_params_check={all_params_check}, orientation_explicit={state.get('orientation_explicit')}, ratio_explicit={state.get('ratio_explicit')}, strategy_explicit={state.get('strategy_explicit')}")
-        if all_params_check:
-            # 参数完整，直接路由到执行节点
-            execute_node = FEATURE_TO_EXECUTE.get(feature)
-            if execute_node:
-                state["current_step"] = execute_node
-                print(f"[DEBUG handle_user_response] all params provided, routing to {execute_node}")
-                # 清除 combined_input 和 new_user_input
-                state["combined_input"] = None
-                state["new_user_input"] = None
-                return state
-
-        # 仍有缺失参数，添加消息询问剩余参数
-        from agent.types import ConversationMessage
-        from datetime import datetime
-        remaining_missing = _get_missing_params(feature, state)
-        print(f"[DEBUG handle_user_response] CHECK before send - remaining_missing={remaining_missing}, feature={feature}")
-        if remaining_missing and feature == "convert":
-            missing_labels = []
-            if "orientation" in remaining_missing:
-                missing_labels.append("方向")
-            if "ratio" in remaining_missing:
-                missing_labels.append("比例")
-            if "strategy" in remaining_missing:
-                missing_labels.append("策略")
-            if missing_labels:
                 ask_msg = f"已收到您的选择。请问选择哪个{'/'.join(missing_labels)}？"
                 print(f"[DEBUG handle_user_response] sending ask_msg: {ask_msg}")
                 msg = ConversationMessage(role="assistant", content=ask_msg, timestamp=datetime.now().isoformat())
@@ -219,8 +239,11 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
                 from agent.streaming import send_stream_chunk, is_streaming_enabled
                 if is_streaming_enabled():
                     send_stream_chunk(ask_msg)
+    else:
+        # 所有参数都已提供，清除 pending_question
+        state["pending_question"] = None
 
-    # 仍有缺失参数，设置 current_step 为 waiting_for_user 让下轮进入 handle_user_response
+    # 设置 current_step
     state["new_user_input"] = None
     state["current_step"] = "waiting_for_user"
 
