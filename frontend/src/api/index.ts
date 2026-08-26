@@ -21,7 +21,8 @@ export const api = {
     formData: FormData,
     onMessage: (content: string) => void,
     onDone: (data: any) => void,
-    onError: (err: string) => void
+    onError: (err: string) => void,
+    onProgress?: (percent: number) => void
   ) {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API_BASE}/agent/chat-stream`);
@@ -36,36 +37,49 @@ export const api = {
       // 从上次处理到的位置继续，只处理新增的部分
       if (lastCharIndex >= currentLen) return;
 
-      // 找到下一个 data: 位置
+      // 找到下一个 SSE 事件（以 data: 开头）
       let startIdx = text.indexOf('data: ', lastCharIndex);
-      if (startIdx === -1) {
-        lastCharIndex = currentLen;
-        return;
-      }
-
-      // 找到这行的结束位置（换行符）
-      let endIdx = text.indexOf('\n', startIdx);
-      if (endIdx === -1) endIdx = currentLen;
-
-      // 提取并处理这条数据
-      const line = text.slice(startIdx, endIdx).trim();
-      if (line.startsWith('data: ')) {
-        const jsonStr = line.slice(6);
-        try {
-          const data = JSON.parse(jsonStr);
-          if (data.event === 'message') {
-            onMessage(data.answer || '');
-          } else if (data.event === 'message_end') {
-            onDone(data);
-          } else if (data.event === 'error') {
-            onError(data.error || data.message);
-          }
-        } catch (e) {
-          // 忽略解析错误
+      while (startIdx !== -1) {
+        // 找到此事件的结束位置（\n\n 或文件末尾）
+        let endIdx = text.indexOf('\n\n', startIdx);
+        if (endIdx === -1) {
+          // 事件不完整，等更多数据
+          lastCharIndex = currentLen;
+          return;
         }
+        // 包含换行符到 endIdx
+        endIdx += 2;
+
+        // 提取并处理这条数据
+        const line = text.slice(startIdx, endIdx).trim();
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.slice(6);
+          try {
+            const data = JSON.parse(jsonStr);
+            if (data.event === 'message') {
+              const answer = data.answer || '';
+              // 解析进度格式 [PROGRESS:45]
+              const progressMatch = answer.match(/^\[PROGRESS:(\d+)\]$/);
+              if (progressMatch && onProgress) {
+                onProgress(parseInt(progressMatch[1], 10));
+              } else if (answer) {
+                onMessage(answer);
+              }
+            } else if (data.event === 'message_end') {
+              onDone(data);
+            } else if (data.event === 'error') {
+              onError(data.error || data.message);
+            }
+          } catch (e) {
+            // 忽略解析错误
+          }
+        }
+
+        // 继续找下一个事件
+        startIdx = text.indexOf('data: ', endIdx);
       }
 
-      lastCharIndex = endIdx;
+      lastCharIndex = currentLen;
     };
 
     xhr.onerror = () => onError('Network error');

@@ -42,9 +42,28 @@ FEATURE_TO_STEP = {
 
 
 def _complete_params_provided(state: VideoAgentState, feature: str):
-    """通用：UI 参数完整时设置执行步骤并清除 pending_question"""
+    """通用：参数完整时设置执行步骤并清除 pending_question"""
     state["pending_question"] = None
     state["current_step"] = FEATURE_TO_STEP.get(feature, "execute_transform")
+
+
+def _setup_feature_state(state: VideoAgentState, feature: str, all_params_provided: bool,
+                          pending_question: Optional[str], llm_response: str):
+    """通用：设置功能状态和消息
+
+    所有功能最终都调用此函数，确保统一的行为。
+    """
+    state["current_feature"] = feature
+    state["all_params_provided"] = all_params_provided
+    state["pending_question"] = pending_question
+
+    if llm_response:
+        _append_message(state, "assistant", llm_response)
+
+    if all_params_provided:
+        _complete_params_provided(state, feature)
+    else:
+        state["current_step"] = None
 
 
 class IntentParser:
@@ -140,11 +159,10 @@ class IntentParser:
 
 
 def _parse_ui_params(user_input: str) -> dict:
-    """解析前端UI选择的参数格式 [用户已选择参数：功能=横竖屏转换，目标方向=竖屏 9:16，转换策略=填充黑边]"""
+    """解析前端UI选择的参数格式"""
     import re
     result = {"found": False}
 
-    # 检查是否包含UI参数格式
     if "[用户已选择参数：" not in user_input:
         return result
 
@@ -153,14 +171,9 @@ def _parse_ui_params(user_input: str) -> dict:
     if feature_match:
         feature_text = feature_match.group(1).strip()
         feature_map = {
-            "横竖屏转换": "convert",
-            "视频压缩": "compress",
-            "视频修剪": "trim",
-            "视频拼接": "concat",
-            "智能缩编": "condense",
-            "老视频修复": "restore",
-            "智能剪辑": "editor",
-            "视频信息获取": "info",
+            "横竖屏转换": "convert", "视频压缩": "compress", "视频修剪": "trim",
+            "视频拼接": "concat", "智能缩编": "condense", "老视频修复": "restore",
+            "智能剪辑": "editor", "视频信息获取": "info",
         }
         for name, feat in feature_map.items():
             if name in feature_text:
@@ -178,8 +191,6 @@ def _parse_ui_params(user_input: str) -> dict:
         elif "横屏" in orient_text:
             result["target_orientation"] = "landscape"
             result["ratio_text"] = orient_text
-
-        # 解析比例
         ratio_map = {"9:16": 0.5625, "4:5": 0.8, "16:9": 1.7778, "21:9": 2.3333, "4:3": 1.3333}
         for ratio_text, ratio_value in ratio_map.items():
             if ratio_text in orient_text:
@@ -191,12 +202,8 @@ def _parse_ui_params(user_input: str) -> dict:
     if strategy_match:
         strategy_text = strategy_match.group(1).strip()
         strategy_map = {
-            "填充黑边": "pad",
-            "中心裁剪": "crop",
-            "智能裁剪": "smart_crop",
-            "拉伸填充": "stretch",
-            "镜像滚动": "mirror_scroll",
-            "平移运镜": "pan_scroll",
+            "填充黑边": "pad", "中心裁剪": "crop", "智能裁剪": "smart_crop",
+            "拉伸填充": "stretch", "镜像滚动": "mirror_scroll", "平移运镜": "pan_scroll",
         }
         for name, strategy in strategy_map.items():
             if name in strategy_text:
@@ -211,11 +218,7 @@ def _parse_ui_params(user_input: str) -> dict:
     compress_match = re.search(r'压缩级别\s*=\s*([^，,\]]+)', user_input)
     if compress_match:
         level_text = compress_match.group(1).strip()
-        level_map = {
-            "低": "low",
-            "中": "medium",
-            "高": "high",
-        }
+        level_map = {"低": "low", "中": "medium", "高": "high"}
         for name, level in level_map.items():
             if name in level_text:
                 result["compression_level"] = level
@@ -223,8 +226,7 @@ def _parse_ui_params(user_input: str) -> dict:
                 result["found"] = True
                 break
 
-    # 解析修剪时间（支持两种格式）
-    # 格式1：从X秒到Y秒
+    # 解析修剪时间
     trim_time_match = re.search(r'从(\d+\.?\d*)秒到(\d+\.?\d*)秒', user_input)
     if trim_time_match:
         result["start_time"] = float(trim_time_match.group(1))
@@ -233,7 +235,6 @@ def _parse_ui_params(user_input: str) -> dict:
         result["end_time_explicit"] = True
         result["found"] = True
     else:
-        # 格式2：修剪开始时间=X秒，修剪结束时间=Y秒
         start_match = re.search(r'修剪开始时间\s*=\s*(\d+\.?\d*)秒', user_input)
         end_match = re.search(r'修剪结束时间\s*=\s*(\d+\.?\d*)秒', user_input)
         if start_match and end_match:
@@ -246,287 +247,98 @@ def _parse_ui_params(user_input: str) -> dict:
     return result
 
 
-def analyze_intent(state: VideoAgentState) -> VideoAgentState:
-    """分析用户意图 - 使用 LLM 生成响应"""
-    import os
+# ============ 各功能处理器 ============
 
-    # 优先级: new_user_input > combined_input > user_input
-    # new_user_input: 新一轮请求的用户输入（最高优先）
-    # combined_input: handle_user_response 拼接的上轮 pending_question + 用户回答
-    # user_input: 初始输入（降级用）
-    user_input = state.get("new_user_input") or state.get("combined_input") or state["user_input"]
-    video_files = state.get("video_files") or []
+def _handle_convert_ui(state, ui_params):
+    """处理 convert - UI 参数"""
+    state["target_orientation"] = ui_params.get("target_orientation")
+    state["strategy"] = ui_params.get("strategy")
+    state["target_ratio"] = ui_params.get("target_ratio")
+    state["orientation_explicit"] = True
+    state["strategy_explicit"] = True
+    state["ratio_explicit"] = True
+    orient_str = "竖屏" if ui_params.get("target_orientation") == "portrait" else "横屏"
+    ratio_str = ui_params.get("ratio_text", "9:16")
+    strategy_str = ui_params.get("strategy_text", "填充黑边")
+    return f"好的，我把视频转换为{orient_str}（{ratio_str}），使用{strategy_str}策略。", True
 
-    llm_response = ""
-    all_params_provided = False
 
-    # 优先解析UI选择参数格式 [用户已选择参数：...]
-    ui_params = _parse_ui_params(user_input)
-    print(f"[DEBUG analyze_intent] user_input: {user_input[:100]}, video_files count: {len(video_files)}")
-    if ui_params.get("found"):
-        feature = ui_params.get("feature", "convert")
-        state["current_feature"] = feature
+def _handle_compress_ui(state, ui_params):
+    """处理 compress - UI 参数"""
+    state["compression_level"] = ui_params.get("compression_level")
+    state["compression_explicit"] = True
+    level_text = ui_params.get("compression_level_text", "中等")
+    return f"好的，我将把视频压缩为{level_text}质量。", True
 
-        # 根据功能类型设置状态
-        if feature == "convert":
-            target_orientation = ui_params.get("target_orientation")
-            strategy = ui_params.get("strategy")
-            ratio = ui_params.get("target_ratio")
-            state["target_orientation"] = target_orientation
-            state["strategy"] = strategy
-            state["target_ratio"] = ratio
-            state["orientation_explicit"] = True
-            state["strategy_explicit"] = True
-            state["ratio_explicit"] = True
-            all_params_provided = True
-            llm_response = f"好的，我把视频转换为{'竖屏' if target_orientation == 'portrait' else '横屏'}（{ui_params.get('ratio_text', '9:16')}），使用{ui_params.get('strategy_text', '填充黑边')}策略。"
-        elif feature == "compress":
-            compression_level = ui_params.get("compression_level")
-            state["compression_level"] = compression_level
-            state["compression_explicit"] = True
-            all_params_provided = True
-            llm_response = f"好的，我将把视频压缩为{ui_params.get('compression_level_text', '中等')}质量。"
-        elif feature == "info":
-            all_params_provided = True
-            llm_response = "好的，我来获取视频的详细信息。"
-        elif feature == "trim":
-            # 修剪需要时间参数
-            start_time = ui_params.get("start_time")
-            end_time = ui_params.get("end_time")
-            start_explicit = ui_params.get("start_time_explicit", False)
-            end_explicit = ui_params.get("end_time_explicit", False)
-            if start_time is not None:
-                state["start_time"] = start_time
-            if end_time is not None:
-                state["end_time"] = end_time
-            state["start_time_explicit"] = start_explicit
-            state["end_time_explicit"] = end_explicit
-            all_params_provided = start_explicit and end_explicit
-            if all_params_provided:
-                llm_response = f"好的，我来修剪视频从{start_time}秒到{end_time}秒。"
-            else:
-                llm_response = "好的，我来处理视频修剪。"
-        elif feature == "concat":
-            all_params_provided = True
-            llm_response = "好的，我来拼接视频。"
-        elif feature == "condense":
-            all_params_provided = True
-            llm_response = "好的，我来处理智能缩编。"
-        elif feature == "restore":
-            all_params_provided = True
-            llm_response = "好的，我来处理老视频修复。"
-        elif feature == "editor":
-            all_params_provided = True
-            llm_response = "好的，我来处理智能剪辑。"
-        else:
-            all_params_provided = True
-            llm_response = f"好的，我来处理。"
 
-        state["all_params_provided"] = all_params_provided
-        _append_message(state, "assistant", llm_response)
+def _handle_info_ui(state):
+    """处理 info - UI 参数"""
+    return "好的，我来获取视频的详细信息。", True
 
-        # UI 参数完整时，直接设置执行步骤（避免再次进入 waiting_for_user）
-        if all_params_provided:
-            _complete_params_provided(state, feature)
 
-        return state
+def _handle_trim_ui(state, ui_params):
+    """处理 trim - UI 参数"""
+    start_time = ui_params.get("start_time")
+    end_time = ui_params.get("end_time")
+    start_explicit = ui_params.get("start_time_explicit", False)
+    end_explicit = ui_params.get("end_time_explicit", False)
+    if start_time is not None:
+        state["start_time"] = start_time
+    if end_time is not None:
+        state["end_time"] = end_time
+    state["start_time_explicit"] = start_explicit
+    state["end_time_explicit"] = end_explicit
+    all_params = start_explicit and end_explicit
+    if all_params:
+        return f"好的，我来修剪视频从{start_time}秒到{end_time}秒。", True
+    return "好的，我来处理视频修剪。", False
 
-    # 优先使用 LLM 意图解析（如果可用）
-    # 同时做本地解析作为降级
-    local_parsed = IntentParser.parse(user_input)
 
-    LLM_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
-    llm_parse_intent = None
+def _handle_concat_ui(state):
+    """处理 concat - UI 参数"""
+    return "好的，我来拼接视频。", True
 
-    def _get_llm_parse_intent():
-        nonlocal llm_parse_intent
-        if llm_parse_intent is None:
-            api_key = os.environ.get("MINIMAX_API_KEY", "")
-            if api_key:
-                try:
-                    from agent.langchain_agent import parse_intent as llm_parse_intent_impl
-                    llm_parse_intent = llm_parse_intent_impl
-                except ImportError:
-                    llm_parse_intent = None
-        return llm_parse_intent
 
-    _llm_parse_intent = _get_llm_parse_intent()
-    if _llm_parse_intent:
+def _handle_condense_ui(state):
+    """处理 condense - UI 参数"""
+    return "好的，我来处理智能缩编。", True
+
+
+def _handle_restore_ui(state):
+    """处理 restore - UI 参数"""
+    return "好的，我来处理老视频修复。", True
+
+
+def _handle_editor_ui(state):
+    """处理 editor - UI 参数"""
+    return "好的，我来处理智能剪辑。", True
+
+
+def _handle_convert_llm(state, parsed, local_parsed):
+    """处理 convert - LLM 参数"""
+    # 获取 LLM 解析结果
+    target_orientation = parsed.get("target_orientation")
+    orientation_explicit = parsed.get("orientation_explicit", False)
+    strategy = parsed.get("strategy")
+    strategy_explicit = parsed.get("strategy_explicit", False)
+    ratio = parsed.get("target_ratio")
+    ratio_explicit = parsed.get("ratio_explicit", False)
+
+    # 转换比例字符串
+    if ratio and isinstance(ratio, str) and ":" in ratio:
         try:
-            from agent.langchain_agent import MinMaxLLM
-            from agent.memory import get_conversation_history
-            llm = MinMaxLLM(api_key=LLM_API_KEY)
-            # 优先使用当前会话中已累积的消息（state["messages"]），因为它们已经被添加
-            # 只有当 state["messages"] 为空时，才尝试从 LangChain Memory 获取
-            session_id = state.get("session_id")
-            state_messages = state.get("messages", [])
-            if session_id and len(state_messages) > 0:
-                # 当前会话已有消息，直接使用
-                history = []
-                for m in state_messages:
-                    if isinstance(m, dict):
-                        role = "user" if m.get("role") in ("user", "human") else "assistant"
-                        history.append({"role": role, "content": m.get("content", "")})
-                    else:
-                        # LangChain message object
-                        role = "user" if isinstance(m, HumanMessage) else "assistant"
-                        history.append({"role": role, "content": m.content})
-            elif session_id:
-                # 当前会话暂无消息，尝试从 LangChain Memory 获取
-                chat_history = get_conversation_history(session_id)
-                history = [{"role": "user" if isinstance(m, HumanMessage) else "assistant", "content": m.content}
-                          for m in chat_history.messages]
-            else:
-                history = []
-            parsed = _llm_parse_intent(user_input, llm, history=history)
+            w, h = ratio.split(":")
+            ratio = int(w) / int(h)
+        except (ValueError, ZeroDivisionError):
+            pass
 
-            target_feature = parsed.get("target_feature", "convert")
-            compression_level = parsed.get("compression_level")
-            compression_explicit = parsed.get("compression_explicit", False)
-            target_orientation = parsed.get("target_orientation")
-            orientation_explicit = parsed.get("orientation_explicit", False)
-            strategy = parsed.get("strategy")
-            strategy_explicit = parsed.get("strategy_explicit", False)
-            ratio = parsed.get("target_ratio")
-            ratio_explicit = parsed.get("ratio_explicit", False)
-            # 如果 LLM 返回了有效的 ratio 值（字符串如 "9:16"），设置 ratio_explicit 并转换为浮点数
-            if ratio:
-                if not ratio_explicit:
-                    ratio_explicit = True
-                # 转换字符串比例 "9:16" -> 0.5625
-                if isinstance(ratio, str) and ":" in ratio:
-                    try:
-                        w, h = ratio.split(":")
-                        ratio = int(w) / int(h)
-                    except (ValueError, ZeroDivisionError):
-                        pass
-            # highlight 参数
-            target_duration = parsed.get("target_duration", 60)
-            target_duration_explicit = parsed.get("target_duration_explicit", False)
-            num_clips = parsed.get("num_clips", 5)
-            num_clips_explicit = parsed.get("num_clips_explicit", False)
-            # transition 参数
-            transition_type = parsed.get("transition_type", "fade")
-            transition_type_explicit = parsed.get("transition_type_explicit", False)
-            transition_duration = parsed.get("transition_duration", 1.0)
-            transition_duration_explicit = parsed.get("transition_duration_explicit", False)
-            llm_response = parsed.get("response", "")
-            all_params_provided = parsed.get("all_params_provided", False)
-
-            # 如果是压缩请求
-            if target_feature == "compress":
-                print(f"[DEBUG compress] compression_explicit={compression_explicit}, compression_level={compression_level}")
-                # 本地解析降级（如果 LLM 没有解析出压缩级别）
-                if not compression_explicit and local_parsed.get("compression_explicit"):
-                    compression_level = local_parsed.get("compression")
-                    compression_explicit = True
-                state["current_feature"] = "compress"
-                state["compression_level"] = compression_level
-                state["compression_explicit"] = compression_explicit
-                state["all_params_provided"] = compression_explicit and bool(compression_level)
-                state["pending_question"] = None if state["all_params_provided"] else "请选择压缩级别"
-                if state["all_params_provided"]:
-                    level_str = {"low": "大文件/低压缩", "medium": "中等压缩", "high": "小文件/高压缩"}.get(compression_level, "")
-                    llm_response = f"好的，将视频压缩为{level_str}。"
-                else:
-                    llm_response = "请选择压缩级别：低压缩（大文件）、中等压缩（中等文件）、高压缩（小文件）"
-                print(f"[DEBUG compress] sending message: {llm_response}")
-                _append_message(state, "assistant", llm_response)
-                return state
-
-            # 如果是视频信息请求
-            if target_feature == "info":
-                state["current_feature"] = "info"
-                state["all_params_provided"] = all_params_provided
-                state["pending_question"] = None
-                _append_message(state, "assistant", llm_response or "好的，我来获取视频的详细信息。")
-                return state
-
-            # 如果是视频修剪请求
-            if target_feature == "trim":
-                start_time = parsed.get("start_time")
-                end_time = parsed.get("end_time")
-                start_time_explicit = parsed.get("start_time_explicit", False)
-                end_time_explicit = parsed.get("end_time_explicit", False)
-
-                state["current_feature"] = "trim"
-                if start_time is not None:
-                    try:
-                        state["start_time"] = float(start_time)
-                    except (ValueError, TypeError):
-                        state["start_time"] = start_time
-                if end_time is not None:
-                    try:
-                        state["end_time"] = float(end_time)
-                    except (ValueError, TypeError):
-                        state["end_time"] = end_time
-                state["start_time_explicit"] = start_time_explicit
-                state["end_time_explicit"] = end_time_explicit
-                state["all_params_provided"] = start_time_explicit and end_time_explicit
-                if not state["all_params_provided"]:
-                    missing = []
-                    if not start_time_explicit:
-                        missing.append("开始时间")
-                    if not end_time_explicit:
-                        missing.append("结束时间")
-                    state["pending_question"] = f"请提供{'和'.join(missing)}"
-                else:
-                    state["pending_question"] = None
-                    state["current_step"] = "execute_trim"
-
-                _append_message(state, "assistant", llm_response)
-                return state
-
-            # 如果是视频拼接请求
-            if target_feature == "concat":
-                state["current_feature"] = "concat"
-                video_files = state.get("video_files") or []
-                keep_audio = parsed.get("keep_audio", True)
-                state["keep_audio"] = keep_audio
-                # 如果有2个以上文件且 LLM 没有提问，就立即执行
-                if len(video_files) >= 2 and "？" not in llm_response and "?" not in llm_response:
-                    state["all_params_provided"] = True
-                    state["pending_question"] = None
-                    state["current_step"] = "execute_concat"
-                else:
-                    state["all_params_provided"] = False
-                    state["pending_question"] = llm_response if llm_response else "请确认是否保留音频"
-                _append_message(state, "assistant", llm_response)
-                return state
-
-            # 如果是转换请求（convert或未识别都走转换流程）
-            if target_feature == "convert" or target_feature is None:
-                state["current_feature"] = "convert"
-
-            # 转换方向格式
-            if target_orientation and isinstance(target_orientation, str):
-                target_orientation = target_orientation.lower()
-                if target_orientation not in ["portrait", "landscape"]:
-                    target_orientation = None
-                    orientation_explicit = False
-
-        except Exception as e:
-            llm_response = f"LLM 解析出错：{str(e)}"
+    # 转换方向格式
+    if target_orientation and isinstance(target_orientation, str):
+        if target_orientation.lower() not in ["portrait", "landscape"]:
             target_orientation = None
             orientation_explicit = False
-            strategy = None
-            strategy_explicit = False
-            ratio = None
-            ratio_explicit = False
-            target_feature = "convert"
-    else:
-        # 无 LLM 时使用默认响应
-        llm_response = "请告诉我您想要做什么：转换视频方向还是压缩视频？"
-        target_orientation = None
-        orientation_explicit = False
-        strategy = None
-        strategy_explicit = False
-        ratio = None
-        ratio_explicit = False
-        target_feature = "transform"
 
-    # 使用本地关键词解析补充 LLM 结果（如果用户明确提到则覆盖）
-    # 只有当 local_parsed 明确检测到参数时才覆盖 LLM 结果
+    # 本地关键词补充
     if local_parsed.get("orientation_explicit") and local_parsed.get("orientation"):
         target_orientation = local_parsed["orientation"]
         orientation_explicit = True
@@ -536,57 +348,27 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     if local_parsed.get("ratio_explicit") and local_parsed.get("ratio"):
         ratio = local_parsed["ratio"]
         ratio_explicit = True
-    if local_parsed.get("compression_explicit"):
-        compression_level = local_parsed.get("compression")
-        compression_explicit = True
-        state["compression_level"] = compression_level
-        state["compression_explicit"] = True
-        state["all_params_provided"] = True
-        state["pending_question"] = None
-        state["current_feature"] = "compress"
-        level_str = {"low": "大文件/低压缩", "medium": "中等压缩", "high": "小文件/高压缩"}.get(compression_level, "")
-        llm_response = f"好的，将视频压缩为{level_str}。"
-        _append_message(state, "assistant", llm_response)
-        return state
 
-    # 更新 all_params_provided（convert 需要 orientation + ratio + strategy 都明确）
-    all_params_provided = orientation_explicit and strategy_explicit and ratio_explicit
-
-    # 如果本地解析补充了参数且参数完整，生成正确的回复
-    if all_params_provided and (local_parsed.get("orientation") or local_parsed.get("strategy") or local_parsed.get("ratio")):
-        orientation_str = "竖屏" if target_orientation == "portrait" else "横屏"
-        ratio_str = "9:16" if ratio and ratio < 1 else ("16:9" if ratio and ratio > 1 else "")
-        strategy_str = {"pad": "填充黑边", "crop": "中心裁剪", "smart_crop": "智能裁剪", "stretch": "拉伸填充", "mirror_scroll": "镜像滚动", "pan_scroll": "平移运镜"}.get(strategy, strategy or "")
-        llm_response = f"好的，使用{ratio_str}{orientation_str}和{strategy_str}策略，正在为您转换..."
-        print(f"[DEBUG] Local fallback generated response: {llm_response}")
-
-# 更新状态
+    # 更新状态
     if target_orientation:
         state["target_orientation"] = target_orientation
     if strategy:
         state["strategy"] = strategy
     if ratio:
         state["target_ratio"] = ratio
-
-    # 确保 current_feature 被设置（如果之前未设置）
-    if not state.get("current_feature") and target_feature:
-        state["current_feature"] = target_feature
-
-    # 记录参数是否明确指定
     state["orientation_explicit"] = orientation_explicit
     state["strategy_explicit"] = strategy_explicit
     state["ratio_explicit"] = ratio_explicit
 
-    # 重新计算 all_params_provided（关键词补充后需要重新检查）
-    all_params_provided = orientation_explicit and strategy_explicit and ratio_explicit
-    state["all_params_provided"] = all_params_provided
-    print(f"[DEBUG analyze_intent] BEFORE pending_question check: orientation_explicit={orientation_explicit}, strategy_explicit={strategy_explicit}, ratio_explicit={ratio_explicit}, all_params_provided={all_params_provided}")
-
-    # 如果参数完整，清除 pending_question；否则设置 pending_question
-    if all_params_provided:
-        state["pending_question"] = None
-        # 设置 current_step 为 execute_transform，让 should_proceed 路由到执行节点
-        state["current_step"] = "execute_transform"
+    # 判断参数完整性
+    all_params = orientation_explicit and strategy_explicit and ratio_explicit
+    if all_params:
+        orient_str = "竖屏" if target_orientation == "portrait" else "横屏"
+        ratio_str = "9:16" if ratio and ratio < 1 else ("16:9" if ratio and ratio > 1 else "")
+        strategy_map = {"pad": "填充黑边", "crop": "中心裁剪", "smart_crop": "智能裁剪",
+                       "stretch": "拉伸填充", "mirror_scroll": "镜像滚动", "pan_scroll": "平移运镜"}
+        strategy_str = strategy_map.get(strategy, strategy or "")
+        return f"好的，使用{ratio_str}{orient_str}和{strategy_str}策略，正在为您转换...", True, None
     else:
         missing = []
         if not orientation_explicit:
@@ -595,20 +377,194 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             missing.append("比例")
         if not strategy_explicit:
             missing.append("策略")
-        if missing:
-            state["pending_question"] = f"请选择{'/'.join(missing)}"
-        # 不设置 current_step，让 should_proceed 根据 pending_question 决定是否进入 waiting_for_user
-        # 这样 analyze_intent 的消息能在同一迭代中发送出去
+        pending_question = f"请选择{'/'.join(missing)}" if missing else None
+        return None, False, pending_question
 
-    # 添加 LLM 的响应消息
-    if llm_response:
-        _append_message(state, "assistant", llm_response)
 
-    # 通用：参数完整时设置执行步骤（所有功能共用）
-    if all_params_provided:
-        _complete_params_provided(state, state.get("current_feature"))
+def _handle_compress_llm(state, parsed, local_parsed):
+    """处理 compress - LLM 参数"""
+    compression_level = parsed.get("compression_level")
+    compression_explicit = parsed.get("compression_explicit", False)
+
+    # 本地关键词补充
+    if not compression_explicit and local_parsed.get("compression_explicit"):
+        compression_level = local_parsed.get("compression")
+        compression_explicit = True
+
+    state["compression_level"] = compression_level
+    state["compression_explicit"] = compression_explicit
+
+    all_params = compression_explicit and bool(compression_level)
+    if all_params:
+        level_map = {"low": "大文件/低压缩", "medium": "中等压缩", "high": "小文件/高压缩"}
+        level_str = level_map.get(compression_level, "")
+        return f"好的，将视频压缩为{level_str}。", True, None
     else:
-        # 参数不完整时设置 current_step 为 None，让 should_proceed 能路由到 waiting_for_user
-        state["current_step"] = None
+        return "请选择压缩级别：低压缩（大文件）、中等压缩（中等文件）、高压缩（小文件）", False, "请选择压缩级别"
+
+
+def _handle_info_llm(state, llm_response):
+    """处理 info - LLM 参数"""
+    return llm_response or "好的，我来获取视频的详细信息。", True, None
+
+
+def _handle_trim_llm(state, parsed):
+    """处理 trim - LLM 参数"""
+    start_time = parsed.get("start_time")
+    end_time = parsed.get("end_time")
+    start_explicit = parsed.get("start_time_explicit", False)
+    end_explicit = parsed.get("end_time_explicit", False)
+
+    if start_time is not None:
+        try:
+            state["start_time"] = float(start_time)
+        except (ValueError, TypeError):
+            state["start_time"] = start_time
+    if end_time is not None:
+        try:
+            state["end_time"] = float(end_time)
+        except (ValueError, TypeError):
+            state["end_time"] = end_time
+    state["start_time_explicit"] = start_explicit
+    state["end_time_explicit"] = end_explicit
+
+    all_params = start_explicit and end_explicit
+    if all_params:
+        return f"好的，我来修剪视频从{start_time}秒到{end_time}秒。", True, None
+    else:
+        missing = []
+        if not start_explicit:
+            missing.append("开始时间")
+        if not end_explicit:
+            missing.append("结束时间")
+        pending_question = f"请提供{'和'.join(missing)}" if missing else None
+        return None, False, pending_question
+
+
+def _handle_concat_llm(state, parsed):
+    """处理 concat - LLM 参数"""
+    keep_audio = parsed.get("keep_audio", True)
+    state["keep_audio"] = keep_audio
+    video_files = state.get("video_files") or []
+    all_params = len(video_files) >= 2
+    if all_params:
+        return "好的，我来拼接视频。", True, None
+    else:
+        return "请确认是否保留音频", False, "请确认是否保留音频"
+
+
+def _handle_restore_llm(state):
+    """处理 restore - LLM 参数"""
+    return "好的，我来处理老视频修复。", True, None
+
+
+def _handle_editor_llm(state):
+    """处理 editor - LLM 参数"""
+    return "好的，我来处理智能剪辑。", True, None
+
+
+def analyze_intent(state: VideoAgentState) -> VideoAgentState:
+    """分析用户意图"""
+    import os
+
+    user_input = state.get("new_user_input") or state.get("combined_input") or state["user_input"]
+    video_files = state.get("video_files") or []
+
+    print(f"[DEBUG analyze_intent] user_input: {user_input[:100]}, video_files count: {len(video_files)}")
+
+    # 优先解析UI参数格式
+    ui_params = _parse_ui_params(user_input)
+    if ui_params.get("found"):
+        feature = ui_params.get("feature", "convert")
+        state["current_feature"] = feature
+
+        handlers = {
+            "convert": _handle_convert_ui,
+            "compress": _handle_compress_ui,
+            "info": _handle_info_ui,
+            "trim": _handle_trim_ui,
+            "concat": _handle_concat_ui,
+            "condense": _handle_condense_ui,
+            "restore": _handle_restore_ui,
+            "editor": _handle_editor_ui,
+        }
+        handler = handlers.get(feature)
+        if handler:
+            llm_response, all_params = handler(state, ui_params)
+            _setup_feature_state(state, feature, all_params, None if all_params else "请选择参数", llm_response)
+        return state
+
+    # 本地关键词解析
+    local_parsed = IntentParser.parse(user_input)
+
+    # LLM 解析
+    LLM_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
+    llm_parse_intent = None
+    if LLM_API_KEY:
+        try:
+            from agent.langchain_agent import parse_intent as llm_parse_intent_impl
+            llm_parse_intent = llm_parse_intent_impl
+        except ImportError:
+            pass
+
+    parsed = None
+    llm_response = ""
+    target_feature = "convert"
+
+    if llm_parse_intent:
+        try:
+            from agent.langchain_agent import MinMaxLLM
+            from agent.memory import get_conversation_history
+            llm = MinMaxLLM(api_key=LLM_API_KEY)
+
+            session_id = state.get("session_id")
+            state_messages = state.get("messages", [])
+            if session_id and len(state_messages) > 0:
+                history = []
+                for m in state_messages:
+                    if isinstance(m, dict):
+                        role = "user" if m.get("role") in ("user", "human") else "assistant"
+                        history.append({"role": role, "content": m.get("content", "")})
+                    else:
+                        role = "user" if isinstance(m, HumanMessage) else "assistant"
+                        history.append({"role": role, "content": m.content})
+            elif session_id:
+                chat_history = get_conversation_history(session_id)
+                history = [{"role": "user" if isinstance(m, HumanMessage) else "assistant", "content": m.content}
+                          for m in chat_history.messages]
+            else:
+                history = []
+
+            parsed = llm_parse_intent(user_input, llm, history=history)
+            llm_response = parsed.get("response", "")
+            target_feature = parsed.get("target_feature", "convert")
+        except Exception as e:
+            llm_response = f"LLM 解析出错：{str(e)}"
+            target_feature = "convert"
+    else:
+        target_feature = "transform"
+
+    # 根据功能类型处理
+    feature_handlers = {
+        "convert": lambda: _handle_convert_llm(state, parsed or {}, local_parsed),
+        "compress": lambda: _handle_compress_llm(state, parsed or {}, local_parsed),
+        "info": lambda: _handle_info_llm(state, llm_response),
+        "trim": lambda: _handle_trim_llm(state, parsed or {}),
+        "concat": lambda: _handle_concat_llm(state, parsed or {}),
+        "restore": lambda: (_handle_restore_llm(state)),
+        "editor": lambda: (_handle_editor_llm(state)),
+    }
+
+    handler = feature_handlers.get(target_feature)
+    if handler:
+        result = handler()
+        if len(result) == 3:
+            msg, all_params, pending_q = result
+            _setup_feature_state(state, target_feature, all_params, pending_q, msg or llm_response)
+        elif len(result) == 2:
+            msg, all_params = result
+            _setup_feature_state(state, target_feature, all_params, None, msg or llm_response)
+    else:
+        _setup_feature_state(state, target_feature, False, "请选择参数", llm_response)
 
     return state

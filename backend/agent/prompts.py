@@ -5,11 +5,9 @@ Agent 提示词模板
 """
 
 # ============ 通用部分 ============
-HISTORY_CONTEXT = """【对话历史】（请结合历史理解用户意图）
+CONVERSATION_HISTORY = """
+【对话历史】（请结合历史理解用户意图）
 {history}
-
-【当前输入】
-{user_input}
 """
 
 VIDEO_INFO = """【视频信息】
@@ -17,10 +15,9 @@ VIDEO_INFO = """【视频信息】
 
 # ============ 工具识别 ============
 TOOL_RECOGNITION_PROMPT = """
-对话历史：{history_context}
 
+{conversation_history}
 用户输入：{user_input}
-
 请根据对话历史和用户输入识别用户想要使用的工具：
 - 转换、横屏、竖屏、转竖屏、转横屏、转竖屏9:16、转横屏16:9 -> convert
 - 9:16、16:9、4:5、1:1、21:9、4:3 -> convert
@@ -41,10 +38,8 @@ TOOL_RECOGNITION_PROMPT = """
 # ============ convert 工具 ============
 CONVERT_PARAM_PROMPT = """【任务】解析视频转换需求
 
+{conversation_history}
 用户输入：{user_input}
-历史信息：{history_context}
-
-{video_info}
 
 ---
 
@@ -81,10 +76,8 @@ CONVERT_PARAM_PROMPT = """【任务】解析视频转换需求
 # ============ info 工具 ============
 INFO_PARAM_PROMPT = """【任务】获取视频信息
 
+{conversation_history}
 用户输入：{user_input}
-历史信息：{history_context}
-
-{video_info}
 
 ---
 
@@ -94,13 +87,12 @@ INFO_PARAM_PROMPT = """【任务】获取视频信息
 # ============ compress 工具 ============
 COMPRESS_PARAM_PROMPT = """【任务】解析视频压缩需求
 
+{conversation_history}
 用户输入：{user_input}
-历史信息：{history_context}
-
 
 ---
 
-级别：low=高质量大文件，medium=平衡，high=小体积低质量
+【参数说明】级别：low=低压缩/高质量大文件，medium=中压缩/平衡，high=高压缩/小体积低质量
 
 【规则】用户已回答的用 explicit=true，未回答的用 explicit=false
 
@@ -110,10 +102,9 @@ COMPRESS_PARAM_PROMPT = """【任务】解析视频压缩需求
 # ============ trim 工具 ============
 TRIM_PARAM_PROMPT = """【任务】解析视频修剪需求
 
+{conversation_history}
 用户输入：{user_input}
-历史信息：{history_context}
 
-{video_info}
 
 ---
 
@@ -127,9 +118,9 @@ TRIM_PARAM_PROMPT = """【任务】解析视频修剪需求
 # ============ concat 工具 ============
 CONCAT_PARAM_PROMPT = """【任务】解析视频拼接需求
 
-{history_context}
+{conversation_history}
+用户输入：{user_input}
 
-{video_info}
 
 ---
  用户输入：{user_input}
@@ -143,10 +134,8 @@ CONCAT_PARAM_PROMPT = """【任务】解析视频拼接需求
 # ============ restore 工具 ============
 RESTORE_PARAM_PROMPT = """【任务】解析老视频修复需求
 
+{conversation_history}
 用户输入：{user_input}
-历史信息：{history_context}
-
-{video_info}
 
 ---
 
@@ -161,10 +150,8 @@ RESTORE_PARAM_PROMPT = """【任务】解析老视频修复需求
 # ============ highlight 工具 ============
 HIGHLIGHT_PARAM_PROMPT = """【任务】解析精彩片段提取需求
 
+{conversation_history}
 用户输入：{user_input}
-历史信息：{history_context}
-
-{video_info}
 
 ---
 
@@ -178,10 +165,8 @@ HIGHLIGHT_PARAM_PROMPT = """【任务】解析精彩片段提取需求
 # ============ transition 工具 ============
 TRANSITION_PARAM_PROMPT = """【任务】解析转场效果需求
 
+{conversation_history}
 用户输入：{user_input}
-历史信息：{history_context}
-
-{video_info}
 
 ---
 

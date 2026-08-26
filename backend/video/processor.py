@@ -66,13 +66,14 @@ class VideoMetadata:
         return f"VideoMetadata({self.width}x{self.height}, {self.fps}fps, {self.duration}s)"
 
 
-def run_ffmpeg(cmd: list, progress_callback: Optional[Callable[[float], None]] = None) -> tuple[bool, str]:
+def run_ffmpeg(cmd: list, progress_callback: Optional[Callable[[float], None]] = None, total_duration: Optional[float] = None) -> tuple[bool, str]:
     """
     执行 FFmpeg 命令
 
     Args:
         cmd: FFmpeg 命令列表
         progress_callback: 进度回调 (0.0 - 1.0)
+        total_duration: 视频总时长（秒），用于计算准确的进度百分比
 
     Returns:
         (是否成功, 错误信息或输出)
@@ -104,7 +105,9 @@ def run_ffmpeg(cmd: list, progress_callback: Optional[Callable[[float], None]] =
                         minutes = int(time_match.group(2))
                         seconds = int(time_match.group(3))
                         current_time = hours * 3600 + minutes * 60 + seconds
-                        progress_callback(min(current_time / 300, 0.99))  # 假设最大 5 分钟
+                        # 使用实际视频时长计算进度百分比
+                        max_time = total_duration if total_duration else 300
+                        progress_callback(min(current_time / max_time, 0.99))
                 except:
                     pass
 
@@ -217,7 +220,8 @@ def rotate_video(
         output_path,
     ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    metadata = get_video_metadata(input_path)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
     if not success:
         raise Exception(f"Rotate failed: {error}")
     return True
@@ -284,7 +288,7 @@ def pad_to_ratio(
         output_path,
     ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
     if not success:
         raise Exception(f"Pad failed: {error}")
     return True
@@ -341,7 +345,7 @@ def crop_to_ratio(
         output_path,
     ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
     if not success:
         raise Exception(f"Crop failed: {error}")
     return True
@@ -405,7 +409,7 @@ def stretch_to_ratio(
         output_path,
     ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
     if not success:
         raise Exception(f"Stretch failed: {error}")
     return True
@@ -429,6 +433,7 @@ def compress_video(
     Returns:
         是否成功
     """
+    metadata = get_video_metadata(input_path)
     if compression_level == "low":
         # low: 直接复制流，不重新编码，最小化质量损失
         cmd = [
@@ -442,7 +447,6 @@ def compress_video(
     else:
         # medium/high: 重新编码以减小体积
         # 保留原始编码格式 (h265 -> libx265, h264 -> libx264)
-        metadata = get_video_metadata(input_path)
         codec_map = {"h264": "libx264", "h265": "libx265", "hevc": "libx265"}
         original_codec = codec_map.get(metadata.codec, "libx264") if metadata.codec else "libx264"
 
@@ -474,7 +478,7 @@ def compress_video(
             output_path,
         ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
     if not success:
         raise Exception(f"Compress failed: {error}")
     return True
@@ -516,7 +520,7 @@ def mirror_scroll(
         output_path,
     ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
 
     # 清理临时文件
     if Path(temp_path).exists():
@@ -577,7 +581,7 @@ def pan_scroll(
         output_path,
     ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
     if not success:
         # 如果 zoompan 失败，使用简单的 scale
         cmd = [
@@ -588,7 +592,7 @@ def pan_scroll(
             "-c:a", "copy",
             output_path,
         ]
-        success, error = run_ffmpeg(cmd, progress_callback)
+        success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
 
     if not success:
         raise Exception(f"Pan scroll failed: {error}")
@@ -643,7 +647,7 @@ def trim_video(
         output_path,
     ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=trim_duration)
     if not success:
         raise Exception(f"Trim failed: {error}")
     return True
@@ -703,7 +707,7 @@ def concat_videos(
             cmd.extend(["-c:v", "copy", "-an"])
         cmd.append(output_path)
 
-        success, error = run_ffmpeg(cmd, progress_callback)
+        success, error = run_ffmpeg(cmd, progress_callback, total_duration=sum(m.duration for m in metas))
         # 清理临时文件
         if os.path.exists(list_file):
             os.unlink(list_file)
@@ -746,7 +750,7 @@ def concat_videos(
 
         cmd.extend(["-c:v", "libx264", "-preset", "medium", "-crf", "23", output_path])
 
-        success, error = run_ffmpeg(cmd, progress_callback)
+        success, error = run_ffmpeg(cmd, progress_callback, total_duration=sum(m.duration for m in metas))
 
     if not success:
         raise Exception(f"Concat failed: {error}")
@@ -817,7 +821,7 @@ def add_transition(
         output_path,
     ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=total_duration)
 
     if not success:
         return {"success": False, "message": f"转场处理失败: {error}"}
@@ -856,6 +860,7 @@ def burn_subtitle(
     Returns:
         是否成功
     """
+    metadata = get_video_metadata(video_path)
     # 字幕样式配置
     if style == "minimal":
         # 简洁样式：白色，小字号，底部居中
@@ -901,7 +906,7 @@ def burn_subtitle(
         output_path,
     ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
 
     if not success:
         # 如果 subtitles 滤镜失败，尝试直接用 ass 文件
@@ -922,7 +927,7 @@ def burn_subtitle(
                     "-c:a", "copy",
                     output_path,
                 ]
-                success, error = run_ffmpeg(cmd, progress_callback)
+                success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
         except Exception:
             pass
 
@@ -995,6 +1000,7 @@ def denoise_video(
         "strong": "6:4.5:7.5",
     }
     hqdn3d_param = level_params.get(level, level_params["medium"])
+    metadata = get_video_metadata(input_path)
 
     cmd = [
         FFMPEG_PATH,
@@ -1005,7 +1011,7 @@ def denoise_video(
         output_path,
     ]
 
-    success, error = run_ffmpeg(cmd, progress_callback)
+    success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
     if not success:
         raise Exception(f"Denoise failed: {error}")
     return True

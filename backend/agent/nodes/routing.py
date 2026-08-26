@@ -339,19 +339,3 @@ def should_proceed(state: VideoAgentState) -> Literal["analyze_intent", "execute
         print(f"[DEBUG should_proceed] -> confirm_complete, return confirm_complete")
         return "confirm_complete"
 
-    # 其他功能的判断
-    if feature == "compress" and all_params:
-        return "execute_compress"
-    if feature == "concat" and all_params:
-        return "execute_concat"
-    if feature == "trim" and all_params:
-        return "execute_trim"
-    if all_params:
-        return "execute_transform"
-
-    # 参数不完整时，如果有 pending_question，等待用户回答
-    if pending_question:
-        return "waiting_for_user"
-
-    # 参数不完整，结束让用户补充
-    return "confirm_complete"

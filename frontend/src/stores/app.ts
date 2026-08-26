@@ -18,6 +18,7 @@ export const useAppStore = defineStore('app', () => {
   const selectedFile = ref<File | null>(null);
   const selectedFiles = ref<File[]>([]);
   const isLoading = ref(false);
+  const transformProgress = ref<number | null>(null);  // 0-100，null 表示无进度
 
   // 计算属性
   const currentSession = computed(() =>
@@ -86,6 +87,10 @@ export const useAppStore = defineStore('app', () => {
 
   function setLoading(loading: boolean) {
     isLoading.value = loading;
+  }
+
+  function setTransformProgress(percent: number | null) {
+    transformProgress.value = percent;
   }
 
   function addSession(session: Session) {
@@ -217,6 +222,7 @@ export const useAppStore = defineStore('app', () => {
     selectedFile,
     selectedFiles,
     isLoading,
+    transformProgress,
     // 计算属性
     currentSession,
     currentMessages,
@@ -233,6 +239,7 @@ export const useAppStore = defineStore('app', () => {
     setSelectedFile,
     setSelectedFiles,
     setLoading,
+    setTransformProgress,
     addSession,
     updateSession,
     removeSession,

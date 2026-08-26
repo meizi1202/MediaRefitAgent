@@ -47,6 +47,7 @@ def execute_transform(state: VideoAgentState) -> VideoAgentState:
     output_path = str(output_dir / f"{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
 
     try:
+        print(f"[DEBUG execute_transform] 开始转换, video_path={video_path}, output_path={output_path}")
         request = TransformRequest(
             input_path=video_path,
             output_path=output_path,
@@ -56,10 +57,15 @@ def execute_transform(state: VideoAgentState) -> VideoAgentState:
         )
 
         def progress_callback(progress: float):
-            # 进度回调，可用于更新状态
-            pass
+            # 用特殊格式，前端识别后覆盖更新进度而不追加消息
+            msg = f"[PROGRESS:{int(progress * 100)}]"
+            print(f"[DEBUG execute_transform] {msg}")
+            from agent.streaming import send_stream_message
+            send_stream_message(msg)
 
+        print(f"[DEBUG execute_transform] 调用 transform()...")
         result = transform(request, progress_callback=progress_callback)
+        print(f"[DEBUG execute_transform] 转换完成, success={result.success}")
         state["transform_result"] = {
             "success": result.success,
             "input_path": result.input_path,

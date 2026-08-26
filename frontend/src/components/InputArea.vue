@@ -132,11 +132,17 @@ async function handleSend() {
       // 流式结束，更新最终消息
       store.finishStreamingMessage(targetSessionId, streamingMessageId, accumulatedContent);
       store.setLoading(false);
+      store.setTransformProgress(null);  // 清除进度
     },
     // onError: 错误回调
     (err: string) => {
       store.finishStreamingMessage(targetSessionId, streamingMessageId, '处理过程中出现错误: ' + err);
       store.setLoading(false);
+      store.setTransformProgress(null);  // 清除进度
+    },
+    // onProgress: 进度更新回调
+    (percent: number) => {
+      store.setTransformProgress(percent);
     }
   );
 }

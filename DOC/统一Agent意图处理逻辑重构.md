@@ -46,9 +46,9 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
 
 移除 `analyze_intent` 中专门给 LLM 解析结果的处理分支，因为多轮时会重新走 `analyze_intent`。
 
-### 3. 确保 `select_strategy` 不再处理具体业务
+### 3. 路由逻辑简化
 
-`select_strategy` 应该只负责选择策略，不处理具体 feature 的参数。
+`select_strategy` 节点已移除，路由逻辑统一由 `should_proceed` 和 `handle_user_response` 处理。
 
 ## 验证
 

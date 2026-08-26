@@ -2,7 +2,6 @@
 from agent.video_agent import VideoAgent, run_video_agent, chat_with_agent, LANGGRAPH_AVAILABLE
 from agent.nodes import (
     analyze_intent,
-    detect_video,
     execute_transform,
     execute_compress,
     execute_trim,
@@ -36,7 +35,6 @@ __all__ = [
     "LANGGRAPH_AVAILABLE",
     # Nodes
     "analyze_intent",
-    "detect_video",
     "execute_transform",
     "execute_compress",
     "execute_trim",

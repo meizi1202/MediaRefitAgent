@@ -68,3 +68,7 @@ class VideoAgentState(TypedDict):
     transition_duration_explicit: bool
     # 流式消息队列（用于 SSE）
     message_queue: Optional[list]
+    # 内部字段：用于在 handle_user_response 和 analyze_intent 之间传递合并输入
+    combined_input: Optional[str]
+    # 内部字段：用于从 process_video 向 handle_user_response 传递新用户输入
+    new_user_input: Optional[str]

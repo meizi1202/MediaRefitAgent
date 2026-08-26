@@ -32,11 +32,21 @@
               <a :href="getPreviewUrl(group.previewPath)" target="_blank" class="download-link">⬇️ 下载</a>
             </div>
           </div>
-          <!-- 流式消息加载指示器 - 仅在当前消息组未完成时展示 -->
+          <!-- 流式加载指示器 - 紧跟在助手消息下方 -->
           <div v-if="group.role === 'assistant' && group.items.some(item => item.streaming)" class="streaming-indicator">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
+            <!-- 有进度时展示进度条 -->
+            <template v-if="transformProgress !== null">
+              <div class="progress-bar">
+                <div class="progress-fill" :style="{ width: transformProgress + '%' }"></div>
+              </div>
+              <span class="progress-text">{{ transformProgress }}%</span>
+            </template>
+            <!-- 无进度时展示跳动点 -->
+            <template v-else>
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </template>
           </div>
         </div>
       </div>
@@ -53,6 +63,7 @@ const store = useAppStore();
 const messagesRef = ref<HTMLElement | null>(null);
 
 const messages = computed(() => store.currentMessages);
+const transformProgress = computed(() => store.transformProgress);
 
 // 计算预览视频 URL
 function getPreviewUrl(path: string): string {
@@ -264,9 +275,9 @@ export default { name: 'ChatArea' };
 /* 流式消息加载指示器 */
 .streaming-indicator {
   display: flex;
-  gap: 4px;
-  padding: 12px 16px;
-  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
 }
 .streaming-indicator .dot {
   width: 8px;
@@ -280,6 +291,26 @@ export default { name: 'ChatArea' };
 @keyframes bounce {
   0%, 80%, 100% { transform: scale(0); }
   40% { transform: scale(1); }
+}
+/* 进度条 */
+.streaming-indicator .progress-bar {
+  flex: 1;
+  height: 6px;
+  background: #444;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.streaming-indicator .progress-fill {
+  height: 100%;
+  background: #4CAF50;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.streaming-indicator .progress-text {
+  font-size: 12px;
+  color: #888;
+  min-width: 32px;
+  text-align: right;
 }
 /* 视频预览 */
 .video-preview {

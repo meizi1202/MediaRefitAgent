@@ -161,6 +161,12 @@ def transform(
         if request.strategy == "stretch" and request.target_ratio:
             target_ratio = request.target_ratio
 
+        # 6.5 包装进度回调：将 FFmpeg 的 0→1 映射到 transform 的 0.1→0.95
+        def ffmpeg_progress_wrapper(ffmpeg_progress: float):
+            if progress_callback:
+                # FFmpeg 进度 0→1 映射到 0.1→0.95
+                progress_callback(0.1 + ffmpeg_progress * 0.85)
+
         # 7. 执行转换
         if progress_callback:
             progress_callback(0.1)
@@ -176,7 +182,7 @@ def transform(
                     request.input_path,
                     request.output_path,
                     degrees=angle,
-                    progress_callback=progress_callback,
+                    progress_callback=ffmpeg_progress_wrapper,
                 )
             strategy_used = f"rotate_{angle}"
         elif request.strategy == "pad":
@@ -185,7 +191,7 @@ def transform(
                 request.output_path,
                 target_ratio=target_ratio,
                 target_orientation=target_orientation,
-                progress_callback=progress_callback,
+                progress_callback=ffmpeg_progress_wrapper,
             )
             strategy_used = "pad"
         elif request.strategy == "crop":
@@ -194,7 +200,7 @@ def transform(
                 request.output_path,
                 target_ratio=target_ratio,
                 target_orientation=target_orientation,
-                progress_callback=progress_callback,
+                progress_callback=ffmpeg_progress_wrapper,
             )
             strategy_used = "crop"
         elif request.strategy == "smart_crop":
@@ -203,7 +209,7 @@ def transform(
                     request.input_path,
                     request.output_path,
                     target_ratio=target_ratio,
-                    progress_callback=progress_callback,
+                    progress_callback=ffmpeg_progress_wrapper,
                 )
                 strategy_used = "smart_crop"
             else:
@@ -213,7 +219,7 @@ def transform(
                     request.output_path,
                     target_ratio=target_ratio,
                     target_orientation=target_orientation,
-                    progress_callback=progress_callback,
+                    progress_callback=ffmpeg_progress_wrapper,
                 )
                 strategy_used = "smart_crop (fallback to crop)"
         elif request.strategy == "stretch":
@@ -223,7 +229,7 @@ def transform(
                 request.output_path,
                 target_ratio=target_ratio,
                 target_orientation=target_orientation,
-                progress_callback=progress_callback,
+                progress_callback=ffmpeg_progress_wrapper,
             )
             strategy_used = "stretch"
         elif request.strategy == "mirror_scroll":
@@ -233,7 +239,7 @@ def transform(
                 request.output_path,
                 target_ratio=target_ratio,
                 target_orientation=target_orientation,
-                progress_callback=progress_callback,
+                progress_callback=ffmpeg_progress_wrapper,
             )
             strategy_used = "mirror_scroll"
         elif request.strategy == "pan_scroll":
@@ -243,7 +249,7 @@ def transform(
                 request.output_path,
                 target_ratio=target_ratio,
                 target_orientation=target_orientation,
-                progress_callback=progress_callback,
+                progress_callback=ffmpeg_progress_wrapper,
             )
             strategy_used = "pan_scroll"
         else:
