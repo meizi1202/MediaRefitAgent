@@ -1126,7 +1126,12 @@ async def agent_chat_stream(
             agent_thread.join(timeout=2)
             for path in all_temp_paths:
                 if os.path.exists(path):
-                    os.unlink(path)
+                    for _ in range(3):
+                        try:
+                            os.unlink(path)
+                            break
+                        except PermissionError:
+                            time.sleep(0.1)
 
     return StreamingResponse(
         event_generator(),

@@ -107,6 +107,7 @@ def execute_transform(state: VideoAgentState) -> VideoAgentState:
 
 def execute_compress(state: VideoAgentState) -> VideoAgentState:
     """执行视频压缩"""
+    print(f"[DEBUG execute_compress] CALLED, current_step={state.get('current_step')}")
     video_path = state.get("temp_video_path") or state.get("video_path")
 
     if not video_path:
@@ -127,7 +128,10 @@ def execute_compress(state: VideoAgentState) -> VideoAgentState:
         compression_level = state.get("compression_level", "medium")
 
         def progress_callback(progress: float):
-            pass
+            msg = f"[PROGRESS:{int(progress * 100)}]"
+            print(f"[DEBUG execute_compress] {msg}")
+            from agent.streaming import send_stream_message
+            send_stream_message(msg)
 
         compress_video(video_path, output_path, compression_level, progress_callback)
 

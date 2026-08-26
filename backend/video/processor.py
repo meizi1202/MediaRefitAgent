@@ -330,6 +330,14 @@ def crop_to_ratio(
         x_offset = (metadata.width - crop_width) // 2
         y_offset = 0
 
+    # 校验裁剪尺寸是否超出原视频范围
+    if crop_width > metadata.width or crop_height > metadata.height:
+        raise Exception(
+            f"裁剪失败：目标比例 {target_ratio:.3f} 要求裁剪尺寸 {crop_width}x{crop_height}，"
+            f"但原视频仅为 {metadata.width}x{metadata.height}。\n"
+            f"建议使用「填充黑边」策略代替。"
+        )
+
     # 确保尺寸为偶数（x264 要求）
     crop_width = (crop_width + 1) // 2 * 2
     crop_height = (crop_height + 1) // 2 * 2
@@ -347,7 +355,11 @@ def crop_to_ratio(
 
     success, error = run_ffmpeg(cmd, progress_callback, total_duration=metadata.duration)
     if not success:
-        raise Exception(f"Crop failed: {error}")
+        # 提取真正的错误信息（跳过 banner）
+        error_lines = error.strip().split('\n')
+        real_error = [l for l in error_lines if not l.startswith('ffmpeg version') and not l.startswith('built with') and not l.startswith('configuration:') and not l.startswith('  ')]
+        real_error_msg = real_error[-1] if real_error else error[:200]
+        raise Exception(f"Crop failed: {real_error_msg}")
     return True
 
 

@@ -304,6 +304,9 @@ def create_video_agent_graph():
                          "execute_info", "execute_editor"}
         if next_step in execute_nodes:
             return next_step
+        # 功能切换时，重新走 analyze_intent 解析
+        if next_step == "analyze_intent":
+            return "analyze_intent"
         # 仍有缺失参数，等待用户下一轮回答
         if next_step == "waiting_for_user":
             return "waiting_for_user"
@@ -321,6 +324,7 @@ def create_video_agent_graph():
             "execute_restore": "execute_restore",
             "execute_info": "execute_info",
             "execute_editor": "execute_editor",
+            "analyze_intent": "analyze_intent",
             "waiting_for_user": "waiting_for_user",
             "confirm_complete": "confirm_complete",
         }

@@ -34,14 +34,14 @@
           </div>
           <!-- 流式加载指示器 - 紧跟在助手消息下方 -->
           <div v-if="group.role === 'assistant' && group.items.some(item => item.streaming)" class="streaming-indicator">
-            <!-- 有进度时展示进度条 -->
-            <template v-if="transformProgress !== null">
+            <!-- 有进度时（1-99%）展示进度条 -->
+            <template v-if="transformProgress !== null && transformProgress > 0 && transformProgress < 100">
               <div class="progress-bar">
                 <div class="progress-fill" :style="{ width: transformProgress + '%' }"></div>
               </div>
               <span class="progress-text">{{ transformProgress }}%</span>
             </template>
-            <!-- 无进度时展示跳动点 -->
+            <!-- 无进度或100%时展示跳动点 -->
             <template v-else>
               <span class="dot"></span>
               <span class="dot"></span>

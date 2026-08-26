@@ -316,7 +316,7 @@ def _handle_editor_ui(state):
 
 def _handle_convert_llm(state, parsed, local_parsed):
     """处理 convert - LLM 参数"""
-    # 获取 LLM 解析结果
+    # 获取 LLM 解析结果（parsed 已在 analyze_intent 中填充了 state 历史值作为 fallback）
     target_orientation = parsed.get("target_orientation")
     orientation_explicit = parsed.get("orientation_explicit", False)
     strategy = parsed.get("strategy")
@@ -414,6 +414,16 @@ def _handle_trim_llm(state, parsed):
     end_time = parsed.get("end_time")
     start_explicit = parsed.get("start_time_explicit", False)
     end_explicit = parsed.get("end_time_explicit", False)
+
+    # LLM 未返回 explicit 标志时，fallback 到 state 中的历史值
+    if not start_explicit:
+        start_explicit = state.get("start_time_explicit", False)
+    if not end_explicit:
+        end_explicit = state.get("end_time_explicit", False)
+    if start_time is None:
+        start_time = state.get("start_time")
+    if end_time is None:
+        end_time = state.get("end_time")
 
     if start_time is not None:
         try:
@@ -536,6 +546,22 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
                 history = []
 
             parsed = llm_parse_intent(user_input, llm, history=history)
+            # 如果 LLM 解析没有返回 explicit 标志，fallback 到 state 中的历史值
+            explicit_fields = [
+                ("orientation_explicit", "target_orientation"),
+                ("ratio_explicit", "target_ratio"),
+                ("strategy_explicit", "strategy"),
+                ("compression_explicit", "compression_level"),
+                ("start_time_explicit", "start_time"),
+                ("end_time_explicit", "end_time"),
+            ]
+            for explicit_key, value_key in explicit_fields:
+                if not parsed.get(explicit_key):
+                    parsed[explicit_key] = state.get(explicit_key, False)
+                if not parsed.get(value_key):
+                    parsed[value_key] = state.get(value_key)
+            # 同步到 state["history"]，供后续调用 parse_intent 使用
+            state["history"] = history
             llm_response = parsed.get("response", "")
             target_feature = parsed.get("target_feature", "convert")
         except Exception as e:

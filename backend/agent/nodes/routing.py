@@ -77,6 +77,54 @@ def _parse_pending_question_labels(feature: str, pending_question: str) -> list[
     return labels
 
 
+def _identify_target_from_input(user_input: str) -> str | None:
+    """从用户输入中识别目标（功能类型）
+
+    Returns:
+        功能类型字符串如 "convert", "compress", "trim" 等，或 None（未识别到）
+    """
+    # 1. 优先用 UI 参数格式解析（最准确）
+    from agent.nodes.analyze import _parse_ui_params
+    ui_params = _parse_ui_params(user_input)
+    if ui_params.get("found"):
+        return ui_params.get("feature")
+
+    # 2. 自然语言：用关键词判断
+    text = user_input.lower()
+
+    # compress 相关关键词
+    compress_keywords = ["压缩", "compress", "小文件", "高压缩率", "低压缩", "中等压缩"]
+    if any(kw in text for kw in compress_keywords):
+        return "compress"
+
+    # convert 相关关键词
+    convert_keywords = ["转", "竖屏", "横屏", "portrait", "landscape", "9:16", "16:9", "填充", "裁剪", "拉伸", "旋转", "pad", "crop", "stretch"]
+    if any(kw in text for kw in convert_keywords):
+        return "convert"
+
+    # trim 相关关键词
+    trim_keywords = ["裁剪", "trim", "修剪", "剪切"]
+    if any(kw in text for kw in trim_keywords):
+        return "trim"
+
+    # concat 相关关键词
+    concat_keywords = ["拼接", "concat", "合并"]
+    if any(kw in text for kw in concat_keywords):
+        return "concat"
+
+    # condense 相关关键词
+    condense_keywords = ["缩编", "condense", "精简"]
+    if any(kw in text for kw in condense_keywords):
+        return "condense"
+
+    # restore 相关关键词
+    restore_keywords = ["修复", "restore", "老视频"]
+    if any(kw in text for kw in restore_keywords):
+        return "restore"
+
+    return None
+
+
 def _parse_answer_params(user_input: str, feature: str) -> dict:
     """解析用户回答中的参数，返回 {param_name: value}"""
     # 清理引号和空白
@@ -193,6 +241,24 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     print(f"[DEBUG handle_user_response] ENTER user_input={user_input}, pending_question={pending_question}, feature={feature}")
     print(f"[DEBUG handle_user_response] state: orient_explicit={state.get('orientation_explicit')}, ratio_explicit={state.get('ratio_explicit')}, strategy_explicit={state.get('strategy_explicit')}")
 
+    # 0. 功能切换检测：基于用户最新输入识别目标
+    old_feature = feature
+    identified_target = _identify_target_from_input(user_input)
+    print(f"[DEBUG handle_user_response] identified_target={identified_target}, old_feature={old_feature}")
+
+    if identified_target and identified_target != old_feature:
+        print(f"[DEBUG handle_user_response] 功能切换: {old_feature} -> {identified_target}")
+        # 清除历史 explicit 参数
+        state["orientation_explicit"] = False
+        state["ratio_explicit"] = False
+        state["strategy_explicit"] = False
+        state["compression_explicit"] = False
+        state["start_time_explicit"] = False
+        state["end_time_explicit"] = False
+        state["current_feature"] = identified_target
+        state["current_step"] = "analyze_intent"
+        return state
+
     if not pending_question or not feature:
         # pending_question 不存在但 state 中已有明确参数
         # 说明是 execute_* 后用户修改参数，应该走预解析而非 LLM
@@ -211,6 +277,13 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     # 1. 始终用关键词预解析用户回答（支持用户修改已有参数）
     parsed = _parse_answer_params(user_input, feature)
     print(f"[DEBUG handle_user_response] parsed={parsed}")
+
+    # 1.5 fallback 到 LLM：如果用户用了转折词，说明在改变已有选择，交给 LLM 重新解析
+    has_transition_word = any(kw in user_input for kw in ["不要", "改为", "换成", "改成", "别用", "不用"])
+    if has_transition_word:
+        print(f"[DEBUG handle_user_response] -> analyze_intent (transition word detected, fallback to LLM)")
+        state["current_step"] = "analyze_intent"
+        return state
 
     # 2. 将解析结果写入 state
     for key, val in parsed.items():
