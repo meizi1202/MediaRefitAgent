@@ -15,12 +15,16 @@ import asyncio
 import time
 import urllib.parse
 import urllib.request
+import logging
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 from typing import Optional, AsyncGenerator
 from contextlib import asynccontextmanager
 from enum import Enum
+
+# 降低 uvicorn access log 级别，避免 206 分段请求日志刷屏
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse

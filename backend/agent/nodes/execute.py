@@ -30,6 +30,16 @@ def _append_message(state: VideoAgentState, role: str, content: str):
         send_stream_chunk(content)
 
 
+def _make_progress_callback(label: str = ""):
+    """生成统一的进度回调函数"""
+    def progress_callback(progress: float):
+        prefix = f"[DEBUG {label}] " if label else "[DEBUG] "
+        msg = f"[PROGRESS:{int(progress * 100)}]"
+        print(f"{prefix}{msg}")
+        send_stream_message(msg)
+    return progress_callback
+
+
 def execute_transform(state: VideoAgentState) -> VideoAgentState:
     """执行转换"""
     video_path = state.get("temp_video_path") or state.get("video_path")
@@ -56,13 +66,7 @@ def execute_transform(state: VideoAgentState) -> VideoAgentState:
             target_ratio=state.get("target_ratio", 9/16),
         )
 
-        def progress_callback(progress: float):
-            # 用特殊格式，前端识别后覆盖更新进度而不追加消息
-            msg = f"[PROGRESS:{int(progress * 100)}]"
-            print(f"[DEBUG execute_transform] {msg}")
-            from agent.streaming import send_stream_message
-            send_stream_message(msg)
-
+        progress_callback = _make_progress_callback("execute_transform")
         print(f"[DEBUG execute_transform] 调用 transform()...")
         result = transform(request, progress_callback=progress_callback)
         print(f"[DEBUG execute_transform] 转换完成, success={result.success}")
@@ -126,13 +130,7 @@ def execute_compress(state: VideoAgentState) -> VideoAgentState:
         from video.processor import compress_video
 
         compression_level = state.get("compression_level", "medium")
-
-        def progress_callback(progress: float):
-            msg = f"[PROGRESS:{int(progress * 100)}]"
-            print(f"[DEBUG execute_compress] {msg}")
-            from agent.streaming import send_stream_message
-            send_stream_message(msg)
-
+        progress_callback = _make_progress_callback("execute_compress")
         compress_video(video_path, output_path, compression_level, progress_callback)
 
         # 获取文件大小信息
@@ -181,10 +179,8 @@ def execute_trim(state: VideoAgentState) -> VideoAgentState:
         original_duration = metadata.duration
         original_size = os.path.getsize(video_path)
 
-        def progress_callback(progress: float):
-            pass
-
-        trim_video(video_path, output_path, start_time, end_time)
+        progress_callback = _make_progress_callback("execute_trim")
+        trim_video(video_path, output_path, start_time, end_time, progress_callback=progress_callback)
 
         trimmed_size = os.path.getsize(output_path)
         trimmed_duration = end_time - start_time
@@ -237,11 +233,8 @@ def execute_concat(state: VideoAgentState) -> VideoAgentState:
     try:
         from video.processor import concat_videos
 
-        keep_audio = state.get("keep_audio", True)
-
-        def progress_callback(progress: float):
-            pass
-
+        keep_audio = state.get("keep_audio")
+        progress_callback = _make_progress_callback("execute_concat")
         concat_videos(video_files, output_path, keep_audio=keep_audio, progress_callback=progress_callback)
 
         state["current_step"] = "confirm_complete"
@@ -327,14 +320,11 @@ def execute_condense(state: VideoAgentState) -> VideoAgentState:
         from video.condenser import condense_video
 
         target_duration = state.get("target_duration", 60)
-
-        def progress_callback(progress: float, status: str = ""):
-            pass
-
+        _cb = _make_progress_callback("execute_condense")
         result = condense_video(
             video_path, output_path,
             target_duration=target_duration,
-            progress_callback=progress_callback
+            progress_callback=lambda p, s="": _cb(p)
         )
 
         state["current_step"] = "confirm_complete"
@@ -367,9 +357,7 @@ def execute_restore(state: VideoAgentState) -> VideoAgentState:
     try:
         from video.processor import restore_video
 
-        def progress_callback(progress: float):
-            pass
-
+        progress_callback = _make_progress_callback("execute_restore")
         # 基础修复选项（不需要高级滤镜）
         success = restore_video(
             video_path, output_path,
@@ -418,16 +406,13 @@ def execute_editor(state: VideoAgentState) -> VideoAgentState:
         from video.processor import trim_video, get_video_metadata
 
         target_duration = state.get("target_duration", 60)
-
-        def progress_callback(progress: float):
-            pass
-
+        progress_callback = _make_progress_callback("execute_editor")
         # 简单处理：直接trim到目标时长
         metadata = get_video_metadata(video_path)
         if metadata.duration > target_duration:
             start_time = 0
             end_time = target_duration
-            trim_video(video_path, output_path, start_time, end_time)
+            trim_video(video_path, output_path, start_time, end_time, progress_callback=progress_callback)
         else:
             # 时长不足，直接复制
             import shutil

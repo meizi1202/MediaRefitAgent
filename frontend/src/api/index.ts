@@ -58,12 +58,15 @@ export const api = {
             const data = JSON.parse(jsonStr);
             if (data.event === 'message') {
               const answer = data.answer || '';
-              // 解析进度格式 [PROGRESS:45]
-              const progressMatch = answer.match(/^\[PROGRESS:(\d+)\]$/);
+              // 解析进度格式 [PROGRESS:45]（宽松匹配，answer 中任何位置都可以）
+              const progressMatch = answer.match(/\[PROGRESS:(\d+)\]/);
               if (progressMatch && onProgress) {
                 onProgress(parseInt(progressMatch[1], 10));
-              } else if (answer) {
-                onMessage(answer);
+              }
+              // 移除进度标记后，如果有剩余文本才发送
+              const textWithoutProgress = answer.replace(/\[PROGRESS:\d+\]/g, '').trim();
+              if (textWithoutProgress) {
+                onMessage(textWithoutProgress);
               }
             } else if (data.event === 'message_end') {
               onDone(data);

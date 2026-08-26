@@ -124,12 +124,12 @@ CONCAT_PARAM_PROMPT = """【任务】解析视频拼接需求
 
 ---
  用户输入：{user_input}
- 是否保留音频：keep_audio=true/false
+ 是否保留音频：keep_audio=true/false/null（用户明确回答则填true/false，未明确回答则填null）
 
 【规则】用户已回答的用 explicit=true，未回答的用 explicit=false
 
 【输出格式】
-{{"concat_explicit":true/false,"keep_audio":true/false,"response":"助手回复"}}"""
+{{"concat_explicit":true/false,"keep_audio":true/false/null,"response":"助手回复"}}"""
 
 # ============ restore 工具 ============
 RESTORE_PARAM_PROMPT = """【任务】解析老视频修复需求

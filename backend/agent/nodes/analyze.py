@@ -453,14 +453,31 @@ def _handle_trim_llm(state, parsed):
 
 def _handle_concat_llm(state, parsed):
     """处理 concat - LLM 参数"""
-    keep_audio = parsed.get("keep_audio", True)
-    state["keep_audio"] = keep_audio
+    user_input = state.get("new_user_input") or state.get("combined_input") or state.get("user_input", "")
+    concat_explicit = parsed.get("concat_explicit", False)
+    keep_audio = parsed.get("keep_audio")  # 不给默认值
     video_files = state.get("video_files") or []
-    all_params = len(video_files) >= 2
-    if all_params:
-        return "好的，我来拼接视频。", True, None
-    else:
-        return "请确认是否保留音频", False, "请确认是否保留音频"
+
+    if len(video_files) < 2:
+        return "请上传至少2个视频进行拼接。", False, "需要至少2个视频"
+
+    # 如果用户输入明确提到"拼接"，认为是 concat_explicit=true（LLM 有时返回 false）
+    if not concat_explicit and any(kw in user_input for kw in ["拼接", "合并", "concat"]):
+        concat_explicit = True
+
+    # concat_explicit=true 表示用户明确说了要拼接
+    # keep_audio 为 None 表示用户未明确回答是否保留音频 → 需要询问
+    if concat_explicit and keep_audio is None:
+        return "好的，我已准备好进行视频拼接。请问您是否需要在拼接后的视频中保留原始音频？", False, "请确认是否保留音频"
+
+    # 用户已明确回答
+    if keep_audio is not None:
+        state["keep_audio"] = keep_audio
+        state["concat_explicit"] = True
+        return f"好的，保留{'音频' if keep_audio else '无音频'}，开始拼接视频。", True, None
+
+    # concat_explicit=false 且用户未提到拼接时
+    return "请确认是否要进行视频拼接。", False, "请确认是否拼接"
 
 
 def _handle_restore_llm(state):

@@ -180,6 +180,18 @@ def _parse_answer_params(user_input: str, feature: str) -> dict:
                 result["compression_explicit"] = True
                 break
 
+    elif feature == "concat":
+        # 解析音频保留选项
+        keep_audio_map = [
+            ("保留音频", True), ("保留原始音频", True), ("要音频", True), ("有音频", True),
+            ("不要音频", False), ("无音频", False), ("去掉音频", False), ("消除音频", False),
+        ]
+        for kw, val in keep_audio_map:
+            if kw in text:
+                result["keep_audio"] = val
+                result["concat_explicit"] = True
+                break
+
     return result
 
 
@@ -393,22 +405,13 @@ def should_proceed(state: VideoAgentState) -> Literal["analyze_intent", "execute
         print(f"[DEBUG should_proceed] -> analyze_intent, return analyze_intent")
         return "analyze_intent"
 
-    # 横竖屏转换：参数完整时执行，否则询问用户
-    if feature == "convert":
-        # 参数完整时执行
-        if all_params:
-            print(f"[DEBUG should_proceed] -> convert all_params, return execute_transform")
-            return "execute_transform"
-        # 如果有待回答的问题，等待用户回答
-        if pending_question:
-            print(f"[DEBUG should_proceed] -> convert with_pending, return waiting_for_user")
-            return "waiting_for_user"
-        # 参数不完整，等待用户补充
-        print(f"[DEBUG should_proceed] -> convert no_params, return waiting_for_user")
-        return "waiting_for_user"
-
     # 如果刚从 handle_user_response 返回（current_step 被设置为 confirm_complete），结束流程
     if current_step == "confirm_complete":
         print(f"[DEBUG should_proceed] -> confirm_complete, return confirm_complete")
         return "confirm_complete"
+
+    # 如果 current_step 为 None 但 pending_question 存在，说明在等待用户确认
+    if pending_question:
+        print(f"[DEBUG should_proceed] -> waiting_for_user (pending_question exists, current_step=None)")
+        return "waiting_for_user"
 
