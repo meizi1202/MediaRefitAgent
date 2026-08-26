@@ -26,6 +26,22 @@ PENDING_QUESTION_PARAMS = {
     },
 }
 
+# 参数标签映射：feature -> {param_name: label}
+FEATURE_PARAM_LABELS = {
+    "convert": {
+        "orientation": "方向",
+        "ratio": "比例",
+        "strategy": "策略",
+    },
+    "compress": {
+        "compression_level": "压缩级别",
+    },
+    "trim": {
+        "start_time": "开始时间",
+        "end_time": "结束时间",
+    },
+}
+
 # 功能到执行步骤的映射
 FEATURE_TO_EXECUTE = {
     "convert": "execute_transform",
@@ -37,6 +53,28 @@ FEATURE_TO_EXECUTE = {
     "editor": "execute_editor",
     "info": "execute_info",
 }
+
+
+def _get_missing_labels(feature: str, remaining_missing: list) -> list[str]:
+    """根据缺失参数列表获取中文标签"""
+    labels = []
+    param_labels = FEATURE_PARAM_LABELS.get(feature, {})
+    for param in remaining_missing:
+        if param in param_labels:
+            labels.append(param_labels[param])
+    return labels
+
+
+def _parse_pending_question_labels(feature: str, pending_question: str) -> list[str]:
+    """从 pending_question 解析出缺失的参数标签列表"""
+    labels = []
+    question_params = PENDING_QUESTION_PARAMS.get(feature, {})
+    for kw, params in question_params.items():
+        if kw in pending_question:
+            for p in params:
+                if p in FEATURE_PARAM_LABELS.get(feature, {}):
+                    labels.append(FEATURE_PARAM_LABELS[feature][p])
+    return labels
 
 
 def _parse_answer_params(user_input: str, feature: str) -> dict:
@@ -109,8 +147,10 @@ def _get_missing_params(feature: str, state: VideoAgentState) -> list[str]:
             missing.append("strategy")
         return missing
     elif feature == "compress":
+        missing = []
         if not state.get("compression_explicit"):
-            return ["compression_level"]
+            missing.append("compression_level")
+        return missing
     elif feature == "trim":
         missing = []
         if not state.get("start_time_explicit"):
@@ -198,47 +238,32 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     # 5. 更新 pending_question 为剩余缺失参数
     from agent.types import ConversationMessage
     from datetime import datetime
-    if remaining_missing and feature == "convert":
-        missing_labels = []
-        # 只有当参数在 state 中也是缺失时，才加入追问列表
-        if "orientation" in remaining_missing and not state.get("orientation_explicit"):
-            missing_labels.append("方向")
-        if "ratio" in remaining_missing and not state.get("ratio_explicit"):
-            missing_labels.append("比例")
-        if "strategy" in remaining_missing and not state.get("strategy_explicit"):
-            missing_labels.append("策略")
 
-        # 计算之前的 pending_question 对应的缺失参数列表（用于比较）
-        pending_question_missing_labels = []
-        if pending_question:
-            if "比例" in pending_question or "方向" in pending_question:
-                pending_question_missing_labels.append("方向")
-            if "比例" in pending_question:
-                pending_question_missing_labels.append("比例")
-            if "策略" in pending_question:
-                pending_question_missing_labels.append("策略")
+    # 构建缺失参数的中文标签
+    missing_labels = _get_missing_labels(feature, remaining_missing)
+    # 解析之前的 pending_question 对应的缺失参数标签
+    pending_question_labels = _parse_pending_question_labels(feature, pending_question or "") if pending_question else []
 
-        if missing_labels:
-            # 如果追问的参数和之前一样（没有新参数被提供），直接进入执行而非追问
-            if set(missing_labels) == set(pending_question_missing_labels):
-                # pending_question 没变化，用户只修改了其中一个参数
-                # 直接认为参数已完整
-                state["pending_question"] = None
-                execute_node = FEATURE_TO_EXECUTE.get(feature)
-                if execute_node:
-                    state["current_step"] = execute_node
-                    state["combined_input"] = None
-                    state["new_user_input"] = None
-                    return state
-            else:
-                state["pending_question"] = f"请选择{'/'.join(missing_labels)}"
-                ask_msg = f"已收到您的选择。请问选择哪个{'/'.join(missing_labels)}？"
-                print(f"[DEBUG handle_user_response] sending ask_msg: {ask_msg}")
-                msg = ConversationMessage(role="assistant", content=ask_msg, timestamp=datetime.now().isoformat())
-                state["messages"].append(msg)
-                from agent.streaming import send_stream_chunk, is_streaming_enabled
-                if is_streaming_enabled():
-                    send_stream_chunk(ask_msg)
+    if missing_labels:
+        # 如果追问的参数和之前一样（用户修改了某个参数的值），直接进入执行
+        if set(missing_labels) == set(pending_question_labels):
+            state["pending_question"] = None
+            execute_node = FEATURE_TO_EXECUTE.get(feature)
+            if execute_node:
+                state["current_step"] = execute_node
+                state["combined_input"] = None
+                state["new_user_input"] = None
+                return state
+        else:
+            # 参数有变化，更新追问
+            state["pending_question"] = f"请选择{'/'.join(missing_labels)}"
+            ask_msg = f"已收到您的选择。请问选择哪个{'/'.join(missing_labels)}？"
+            print(f"[DEBUG handle_user_response] sending ask_msg: {ask_msg}")
+            msg = ConversationMessage(role="assistant", content=ask_msg, timestamp=datetime.now().isoformat())
+            state["messages"].append(msg)
+            from agent.streaming import send_stream_chunk, is_streaming_enabled
+            if is_streaming_enabled():
+                send_stream_chunk(ask_msg)
     else:
         # 所有参数都已提供，清除 pending_question
         state["pending_question"] = None
@@ -279,6 +304,19 @@ def should_proceed(state: VideoAgentState) -> Literal["analyze_intent", "execute
         if pending_question:
             print(f"[DEBUG should_proceed] -> waiting_for_user (pending_question exists)")
             return "waiting_for_user"
+        # 参数完整时执行对应功能
+        if feature == "compress" and all_params:
+            print(f"[DEBUG should_proceed] -> execute_compress (all_params)")
+            return "execute_compress"
+        if feature == "convert" and all_params:
+            print(f"[DEBUG should_proceed] -> execute_transform (all_params)")
+            return "execute_transform"
+        if feature == "trim" and all_params:
+            print(f"[DEBUG should_proceed] -> execute_trim (all_params)")
+            return "execute_trim"
+        if feature == "concat" and all_params:
+            print(f"[DEBUG should_proceed] -> execute_concat (all_params)")
+            return "execute_concat"
         print(f"[DEBUG should_proceed] -> analyze_intent, return analyze_intent")
         return "analyze_intent"
 
