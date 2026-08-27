@@ -7,11 +7,11 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional, Callable
+from settings import FFMPEG_PRESET_TRANSFORM, FFMPEG_CRF_TRANSFORM, FFMPEG_AUDIO_BITRATE, FFMPEG_DIR
 
 logger = logging.getLogger(__name__)
 
 # FFmpeg 配置
-FFMPEG_DIR = "C:/ffmpeg/ffmpeg-9.0-essentials_build/bin"
 os.environ["PATH"] = FFMPEG_DIR + os.pathsep + os.environ.get("PATH", "")
 
 
@@ -233,8 +233,8 @@ def _condense_with_funclip(
                 [
                     "ffmpeg", "-i", video_path,
                     "-ss", str(start), "-to", str(end),
-                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                    "-c:a", "aac", "-b:a", "128k",
+                    "-c:v", "libx264", "-preset", FFMPEG_PRESET_TRANSFORM, "-crf", str(FFMPEG_CRF_TRANSFORM),
+                    "-c:a", "aac", "-b:a", FFMPEG_AUDIO_BITRATE,
                     "-movflags", "+faststart",
                     temp_path, "-y"
                 ],
@@ -242,7 +242,9 @@ def _condense_with_funclip(
             )
             if result.returncode == 0:
                 temp_files.append(temp_path)
-            _progress(0.85 + 0.1 * (i + 1) / len(selected_segments), f"Cutting clip {i+1}/{len(selected_segments)}")
+            # 每 5 个片段或最后一个才发送进度，避免频繁通信
+            if (i + 1) % 5 == 0 or i == len(selected_segments) - 1:
+                _progress(0.85 + 0.1 * (i + 1) / len(selected_segments), f"Cutting clip {i+1}/{len(selected_segments)}")
 
         if not temp_files:
             return CondensationResult(success=False, error="Failed to cut segments")
@@ -431,7 +433,7 @@ def _smart_compress(
         [
             "ffmpeg", "-i", video_path,
             "-c:v", "libx265", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k",
+            "-c:a", "aac", "-b:a", FFMPEG_AUDIO_BITRATE,
             output_path, "-y"
         ],
         capture_output=True, text=True
@@ -489,7 +491,9 @@ def _smart_crop(
         [
             "ffmpeg", "-i", video_path,
             "-vf", crop_filter,
+            "-c:v", "libx264", "-preset", FFMPEG_PRESET_TRANSFORM, "-crf", str(FFMPEG_CRF_TRANSFORM),
             "-c:a", "copy",
+            "-movflags", "+faststart",
             output_path, "-y"
         ],
         capture_output=True, text=True
@@ -598,8 +602,8 @@ def _concatenate_segments(video_paths: list[str], output_path: str) -> bool:
             *input_args,
             "-filter_complex", filter_str,
             "-map", "[outv]", "-map", "[outa]",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-            "-c:a", "aac", "-b:a", "128k",
+            "-c:v", "libx264", "-preset", FFMPEG_PRESET_TRANSFORM, "-crf", str(FFMPEG_CRF_TRANSFORM),
+            "-c:a", "aac", "-b:a", FFMPEG_AUDIO_BITRATE,
             "-movflags", "+faststart",
             abs_output, "-y",
         ],

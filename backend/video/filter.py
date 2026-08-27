@@ -4,6 +4,7 @@
 提供多种预设滤镜效果：复古、电影感、清新、黑白等
 """
 from typing import Optional, Literal
+from settings import FFMPEG_PRESET_TRANSFORM
 
 
 class VideoFilter:
@@ -29,7 +30,7 @@ class VideoFilter:
             "清新风格 - 提亮、饱和度适中"
         ),
         "bw": (
-            "colorchannelmixer=.3:.4:.3:0:.3:.4:.3:0:.3:.4:.3,contrast=1.1",
+            "hue=s=0",
             "黑白电影 - 灰度转换"
         ),
         "cold": (
@@ -127,7 +128,7 @@ class VideoFilter:
                 vf=filter_chain,
                 vcodec='libx264',
                 acodec='copy',
-                preset='fast'  # 快速编码
+                preset=FFMPEG_PRESET_TRANSFORM  # 最快编码，减少内存占用
             )
 
             if progress_callback:
@@ -141,7 +142,12 @@ class VideoFilter:
             return True
 
         except Exception as e:
-            print(f"Filter error: {e}")
+            err_str = str(e)
+            if "stderr:" in err_str:
+                stderr_part = err_str.split("stderr:")[-1].strip()
+                print(f"Filter error: {stderr_part[:500]}")
+            else:
+                print(f"Filter error: {err_str[:300]}")
             return False
 
     @classmethod
@@ -191,7 +197,7 @@ class VideoFilter:
                         af=f'volume={audio_volume}',
                         vcodec='libx264',
                         acodec='aac',
-                        preset='fast'
+                        preset=FFMPEG_PRESET_TRANSFORM
                     )
                 else:
                     stream = ffmpeg.output(
@@ -200,7 +206,7 @@ class VideoFilter:
                         vf=filter_chain,
                         vcodec='libx264',
                         acodec='copy',
-                        preset='fast'
+                        preset=FFMPEG_PRESET_TRANSFORM
                     )
             else:
                 # 无视频滤镜

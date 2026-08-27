@@ -946,6 +946,96 @@ def burn_subtitle(
     return success
 
 
+def generate_subtitle_from_video(
+    video_path: str,
+    output_path: str,
+    style: str = "default",
+    language: str = "zh",
+    burn_in: bool = True,
+    remove_filler: bool = True,
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> dict:
+    """
+    生成视频字幕文件
+
+    Args:
+        video_path: 输入视频路径
+        output_path: 输出字幕/SRT文件路径
+        style: 字幕样式 (default/minimal)
+        language: 语音识别语言
+        burn_in: 是否将字幕烧录到视频
+        remove_filler: 是否去口癖
+        progress_callback: 进度回调
+
+    Returns:
+        dict: {"success": bool, "subtitle_path": str, "output_path": str or None, "error": str or None}
+    """
+    from video.funclip_wrapper import full_transcribe_pipeline
+    from video.filler import clean_srt_subtitle
+
+    try:
+        # 1. 语音识别
+        if progress_callback:
+            progress_callback(0.1)
+
+        result = full_transcribe_pipeline(
+            video_path=video_path,
+            output_dir=str(Path(output_path).parent),
+            model_size="base",
+            language=language,
+        )
+
+        if not result:
+            return {"success": False, "subtitle_path": "", "output_path": None, "error": "语音识别失败"}
+
+        if progress_callback:
+            progress_callback(0.5)
+
+        srt_content = result.srt_content
+
+        # 2. 去口癖（可选）
+        if remove_filler:
+            srt_content = clean_srt_subtitle(srt_content)
+
+        # 3. 保存字幕文件
+        subtitle_path = output_path
+        Path(subtitle_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(subtitle_path, "w", encoding="utf-8") as f:
+            f.write(srt_content)
+
+        if progress_callback:
+            progress_callback(0.7)
+
+        # 4. 烧录字幕到视频（可选）
+        final_output_path = None
+        if burn_in:
+            video_output = output_path.replace(".srt", "_subtitled.mp4")
+            success = burn_subtitle(
+                video_path=video_path,
+                subtitle_path=subtitle_path,
+                output_path=video_output,
+                style=style,
+                progress_callback=progress_callback,
+            )
+            if success:
+                final_output_path = video_output
+            else:
+                final_output_path = None
+
+        if progress_callback:
+            progress_callback(1.0)
+
+        return {
+            "success": True,
+            "subtitle_path": subtitle_path,
+            "output_path": final_output_path,
+            "error": None,
+        }
+
+    except Exception as e:
+        return {"success": False, "subtitle_path": "", "output_path": None, "error": str(e)}
+
+
 def transform_video(
     input_path: str,
     output_path: str,

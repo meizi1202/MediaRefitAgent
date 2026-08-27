@@ -56,6 +56,8 @@ class VideoAgentState(TypedDict):
     # 修剪结果
     trim_result: Optional[dict]
     # ========== 智能剪辑参数 ==========
+    editor_mode: Optional[str]  # highlight/subtitle/transition/bgm/tts/filter/analyze/cover/title-package
+    editor_mode_explicit: bool
     # highlight 参数
     target_duration: Optional[int]  # 目标时长（秒）
     target_duration_explicit: bool
@@ -66,9 +68,31 @@ class VideoAgentState(TypedDict):
     transition_type_explicit: bool
     transition_duration: Optional[float]  # 转场时长（秒）
     transition_duration_explicit: bool
+    # subtitle 参数
+    subtitle_style: Optional[str]  # default/minimal
+    subtitle_style_explicit: bool
+    # bgm 参数
+    bgm_mood: Optional[str]  # auto/happy/calm/energetic
+    bgm_mood_explicit: bool
+    bgm_volume: Optional[float]
+    # tts 参数
+    tts_voice: Optional[str]
+    tts_text: Optional[str]
+    # filter 参数
+    filter_preset: Optional[str]  # none/vintage/cinematic/fresh/bw/warm/cold
+    filter_preset_explicit: bool
+    # cover 参数
+    cover_mode: Optional[str]  # single/candidates
+    cover_mode_explicit: bool
+    # platform-check 参数
+    platform: Optional[str]  # douyin/kuaishou/bilibili/xiaohongshu
+    platform_explicit: bool
     # 流式消息队列（用于 SSE）
     message_queue: Optional[list]
     # 内部字段：用于在 handle_user_response 和 analyze_intent 之间传递合并输入
     combined_input: Optional[str]
     # 内部字段：用于从 process_video 向 handle_user_response 传递新用户输入
     new_user_input: Optional[str]
+    # ========== 老视频修复参数 ==========
+    restoration_preset: Optional[str]  # basic/film/enhanced
+    restoration_preset_explicit: bool

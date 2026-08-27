@@ -164,17 +164,53 @@ class RestorationPipeline:
         """检查是否需要胶片修复"""
         return self.options.scratch_remove or self.options.flicker_remove
 
+    def _needs_interpolation(self) -> bool:
+        """检查是否需要补帧"""
+        return self.options.interpolate
+
+    def _needs_super_resolution(self) -> bool:
+        """检查是否需要超分辨率"""
+        return self.options.super_resolution
+
     def _run_stage(
         self,
         stage_name: str,
         input_path: str,
         stage_func,
+        stage_weight: float = 1.0,
     ) -> Optional[str]:
-        """执行单个阶段"""
+        """执行单个阶段
+
+        Args:
+            stage_name: 阶段名称
+            input_path: 输入文件路径
+            stage_func: 阶段执行函数
+            stage_weight: 阶段权重（占整体进度的比例），0.0-1.0
+        """
         stage_start = time.time()
 
+        # 计算当前阶段的起始进度（基于已完成阶段的权重）
+        completed_weight = sum(
+            s.duration for s in self.stage_results if s.success
+        )
+        # 计算总阶段数和阶段权重
+        all_stages = [n for n in ["basic_restoration", "film_restoration", "interpolation", "super_resolution"] if self._stage_enabled(n)]
+        total_stages = len(all_stages)
+        # 每个阶段的进度权重（均分）
+        stage_weight = 1.0 / max(total_stages, 1)
+        # 已完成的进度
+        completed_ratio = len([s for s in self.stage_results if s.success]) * stage_weight
+        base_progress = completed_ratio
+
+        # 包装回调：将阶段的 0-1 进度映射到整体进度
+        def stage_progress_callback(progress: float):
+            if self.request.progress_callback:
+                overall = base_progress + progress * stage_weight
+                self.request.progress_callback(stage_name, overall)
+
         try:
-            output_path = stage_func(input_path)
+            # 将包装后的回调传递给 stage_func
+            output_path = stage_func(input_path, stage_progress_callback)
 
             self.stage_results.append(RestorationStageResult(
                 stage=stage_name,
@@ -183,10 +219,6 @@ class RestorationPipeline:
                 output_path=output_path,
                 duration=time.time() - stage_start,
             ))
-
-            # 更新进度
-            if self.request.progress_callback:
-                self.request.progress_callback(stage_name, 1.0)
 
             return output_path
 
@@ -203,7 +235,19 @@ class RestorationPipeline:
             # 阶段失败时继续使用输入（避免中断流水线）
             return input_path
 
-    def _run_basic_restoration(self, input_path: str) -> str:
+    def _stage_enabled(self, stage_name: str) -> bool:
+        """检查某阶段是否启用"""
+        if stage_name == "basic_restoration":
+            return self._needs_basic_restoration()
+        elif stage_name == "film_restoration":
+            return self._needs_film_restoration()
+        elif stage_name == "interpolation":
+            return self._needs_interpolation()
+        elif stage_name == "super_resolution":
+            return self._needs_super_resolution()
+        return False
+
+    def _run_basic_restoration(self, input_path: str, progress_callback=None) -> str:
         """执行基础修复"""
         from video.processor import restore_video
 
@@ -220,11 +264,12 @@ class RestorationPipeline:
             color_correct=self.options.color_correct,
             saturation=self.options.saturation / 100.0 + 1.0,  # 转换到 0.9-1.1 范围
             contrast=self.options.contrast_level,
+            progress_callback=progress_callback,
         )
 
         return str(output_path)
 
-    def _run_film_restoration(self, input_path: str) -> str:
+    def _run_film_restoration(self, input_path: str, progress_callback=None) -> str:
         """执行胶片修复"""
         output_path = Path(self.temp_dir) / f"film_{Path(input_path).stem}.mp4"
 
@@ -236,12 +281,14 @@ class RestorationPipeline:
                 input_path,
                 str(temp_path),
                 level=self.options.scratch_level,
+                progress_callback=progress_callback,
             )
 
             remove_flicker(
                 str(temp_path),
                 str(output_path),
                 level=self.options.flicker_level,
+                progress_callback=progress_callback,
             )
 
             if temp_path.exists():
@@ -252,6 +299,7 @@ class RestorationPipeline:
                 input_path,
                 str(output_path),
                 level=self.options.scratch_level,
+                progress_callback=progress_callback,
             )
 
         elif self.options.flicker_remove:
@@ -259,6 +307,7 @@ class RestorationPipeline:
                 input_path,
                 str(output_path),
                 level=self.options.flicker_level,
+                progress_callback=progress_callback,
             )
         else:
             # 没有启用任何胶片修复，直接复制
@@ -266,7 +315,7 @@ class RestorationPipeline:
 
         return str(output_path)
 
-    def _run_interpolation(self, input_path: str) -> str:
+    def _run_interpolation(self, input_path: str, progress_callback=None) -> str:
         """执行补帧"""
         output_path = Path(self.temp_dir) / f"interp_{Path(input_path).stem}.mp4"
 
@@ -274,11 +323,12 @@ class RestorationPipeline:
             input_path,
             str(output_path),
             target_fps=self.options.target_fps,
+            progress_callback=progress_callback,
         )
 
         return str(output_path)
 
-    def _run_super_resolution(self, input_path: str) -> str:
+    def _run_super_resolution(self, input_path: str, progress_callback=None) -> str:
         """执行超分辨率"""
         output_path = Path(self.temp_dir) / f"super_{Path(input_path).stem}.mp4"
 
@@ -286,6 +336,7 @@ class RestorationPipeline:
             input_path,
             str(output_path),
             scale=self.options.scale_factor,
+            progress_callback=progress_callback,
         )
 
         return str(output_path)

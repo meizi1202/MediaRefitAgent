@@ -52,7 +52,7 @@ def parse_args():
     parser.add_argument("--video", "-v", required=True, help="输入视频文件路径")
     parser.add_argument("--output", "-o", help="输出视频文件路径")
     parser.add_argument("--strategy", "-s", default="content_condense",
-                        choices=["smart_compress", "content_condense", "smart_crop"],
+                        choices=["smart_compress", "content_condense"],
                         help="缩编策略 (默认: content_condense)")
     parser.add_argument("--target-duration", "-d", type=float, default=60.0,
                         help="目标时长，秒 (默认: 60)")

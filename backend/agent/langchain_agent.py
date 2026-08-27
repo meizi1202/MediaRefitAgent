@@ -160,6 +160,7 @@ def _check_params_provided(target_feature: str, parsed: dict) -> bool:
         "restore": parsed.get("preset_explicit"),
         "highlight": True,
         "transition": True,
+        "editor": parsed.get("editor_mode_explicit"),
     }
     return check_map.get(target_feature, False)
 
@@ -221,6 +222,25 @@ def _build_response(target_feature: str, parsed: dict, all_params_provided: bool
             "transition_duration_explicit": parsed.get("transition_duration_explicit", False),
         })
 
+    # editor 专用字段
+    if target_feature == "editor":
+        fields.update({
+            "editor_mode": parsed.get("editor_mode"),
+            "editor_mode_explicit": parsed.get("editor_mode_explicit", False),
+            "subtitle_style": parsed.get("subtitle_style"),
+            "subtitle_style_explicit": parsed.get("subtitle_style_explicit", False),
+            "transition_type": parsed.get("transition_type"),
+            "transition_type_explicit": parsed.get("transition_type_explicit", False),
+            "target_duration": parsed.get("target_duration"),
+            "target_duration_explicit": parsed.get("target_duration_explicit", False),
+            "bgm_mood": parsed.get("bgm_mood"),
+            "bgm_mood_explicit": parsed.get("bgm_mood_explicit", False),
+            "filter_preset": parsed.get("filter_preset"),
+            "filter_preset_explicit": parsed.get("filter_preset_explicit", False),
+            "platform": parsed.get("platform"),
+            "platform_explicit": parsed.get("platform_explicit", False),
+        })
+
     return {**base_fields, **fields}
 
 
@@ -241,7 +261,7 @@ def get_video_info(file_path: str) -> dict:
             "codec": metadata.codec,
             "bitrate": metadata.bitrate,
             "size_mb": round(size_bytes / 1024 / 1024, 2),
-            "message": f"视频信息：分辨率 {metadata.width}x{metadata.height}，时长 {metadata.duration:.1f}秒，文件大小 {size_bytes/1024/1024:.2f}MB"
+            "message": f"视频信息：\n- 分辨率：{metadata.width}× {metadata.height}\n- 时长：{metadata.duration:.1f} 秒\n- 文件大小：{size_bytes/1024/1024:.2f} MB\n- 帧率：{metadata.fps:.1f} fps\n- 码率：{metadata.bitrate/1000:.0f} kbps"
         }
     except Exception as e:
         return {"success": False, "message": f"获取视频信息失败：{str(e)}"}

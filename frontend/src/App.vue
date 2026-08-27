@@ -9,6 +9,9 @@
       <CompressPanel />
       <TrimPanel />
       <ConcatPanel />
+      <CondensePanel />
+      <RestorePanel />
+      <EditorPanel />
       <InputArea />
     </main>
   </div>
@@ -24,6 +27,9 @@ import OrientPanel from './components/panels/OrientPanel.vue';
 import CompressPanel from './components/panels/CompressPanel.vue';
 import TrimPanel from './components/panels/TrimPanel.vue';
 import ConcatPanel from './components/panels/ConcatPanel.vue';
+import CondensePanel from './components/panels/CondensePanel.vue';
+import RestorePanel from './components/panels/RestorePanel.vue';
+import EditorPanel from './components/panels/EditorPanel.vue';
 import { useSessions } from './composables/useSessions';
 
 const { loadSessions } = useSessions();

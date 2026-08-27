@@ -1103,7 +1103,7 @@ async def agent_chat_stream(
                     for msg in messages:
                         print(f"[DEBUG] SSE sending: {msg[:50]}...")
                         yield f"data: {json.dumps({'event': 'message', 'answer': msg, 'created_at': int(time.time())})}\n\n"
-                        await asyncio.sleep(0.05)
+                        await asyncio.sleep(0.1)  # 增加间隔，避免 Windows 套接字缓冲区溢出
 
                 # 检查 agent 是否结束
                 if agent_finished[0]:
@@ -1117,7 +1117,7 @@ async def agent_chat_stream(
 
                 # 没有消息时短暂等待再检查
                 if not messages:
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.1)  # 增加间隔，避免 Windows 套接字缓冲区溢出
 
             # 发送完成事件
             actual_session_id = agent_result[0].get('session_id') if agent_result[0] else session_id
@@ -1338,7 +1338,7 @@ async def llm_trim(
 
 class CondenseRequest(BaseModel):
     """缩编请求"""
-    strategy: str = Field(default="content_condense", description="缩编策略: smart_compress / content_condense / smart_crop")
+    strategy: str = Field(default="content_condense", description="缩编策略: smart_compress / content_condense")
     target_duration: float = Field(default=60.0, description="目标时长（秒）")
     target_ratio: float = Field(default=9/16, description="目标比例，默认 9:16 (竖屏)")
     language: str = Field(default="zh", description="语音语言")
@@ -1383,8 +1383,8 @@ async def api_condense(
     - smart_crop: 智能裁剪（人脸/主体跟随）
     """
     # 验证策略
-    if strategy not in ("smart_compress", "content_condense", "smart_crop"):
-        raise HTTPException(status_code=400, detail="strategy must be: smart_compress / content_condense / smart_crop")
+    if strategy not in ("smart_compress", "content_condense"):
+        raise HTTPException(status_code=400, detail="strategy must be: smart_compress / content_condense")
 
     # 保存上传的文件
     suffix = Path(file.filename).suffix if file.filename else ".mp4"

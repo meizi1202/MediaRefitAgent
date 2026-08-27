@@ -12,16 +12,23 @@ from typing import Optional, Literal
 # Edge-TTS 音色列表
 VOICE_OPTIONS = {
     # 中文女声
-    "zh-CN-Xiaoxiao": {"name": "晓晓", "gender": "Female", "lang": "zh-CN"},
-    "zh-CN-Xiaoyi": {"name": "小艺", "gender": "Female", "lang": "zh-CN"},
-    "zh-CN-Yunxi": {"name": "云希", "gender": "Male", "lang": "zh-CN"},
-    "zh-CN-Yunyang": {"name": "云扬", "gender": "Male", "lang": "zh-CN"},
+    "zh-CN-XiaoxiaoNeural": {"name": "晓晓", "gender": "Female", "lang": "zh-CN"},
+    "zh-CN-Xiaoxiao": {"name": "晓晓", "gender": "Female", "lang": "zh-CN"},  # 兼容旧版
+    "zh-CN-XiaoyiNeural": {"name": "小艺", "gender": "Female", "lang": "zh-CN"},
+    "zh-CN-Xiaoyi": {"name": "小艺", "gender": "Female", "lang": "zh-CN"},  # 兼容旧版
+    "zh-CN-YunxiNeural": {"name": "云希", "gender": "Male", "lang": "zh-CN"},
+    "zh-CN-Yunxi": {"name": "云希", "gender": "Male", "lang": "zh-CN"},  # 兼容旧版
+    "zh-CN-YunyangNeural": {"name": "云扬", "gender": "Male", "lang": "zh-CN"},
+    "zh-CN-Yunyang": {"name": "云扬", "gender": "Male", "lang": "zh-CN"},  # 兼容旧版
     "zh-CN-liaoning": {"name": "辽宁", "gender": "Male", "lang": "zh-CN"},
     "zh-CN-shaanxi": {"name": "陕西", "gender": "Male", "lang": "zh-CN"},
     # 英文
-    "en-US-Jenny": {"name": "Jenny", "gender": "Female", "lang": "en-US"},
-    "en-US-Guy": {"name": "Guy", "gender": "Male", "lang": "en-US"},
-    "en-GB-Sonia": {"name": "Sonia", "gender": "Female", "lang": "en-GB"},
+    "en-US-JennyNeural": {"name": "Jenny", "gender": "Female", "lang": "en-US"},
+    "en-US-Jenny": {"name": "Jenny", "gender": "Female", "lang": "en-US"},  # 兼容旧版
+    "en-US-GuyNeural": {"name": "Guy", "gender": "Male", "lang": "en-US"},
+    "en-US-Guy": {"name": "Guy", "gender": "Male", "lang": "en-US"},  # 兼容旧版
+    "en-GB-SoniaNeural": {"name": "Sonia", "gender": "Female", "lang": "en-GB"},
+    "en-GB-Sonia": {"name": "Sonia", "gender": "Female", "lang": "en-GB"},  # 兼容旧版
 }
 
 # 预设风格
@@ -194,54 +201,40 @@ class TTSProcessor:
         Returns:
             是否成功
         """
-        import ffmpeg
+        import subprocess
+        import os
 
         try:
             if progress_callback:
                 progress_callback(0.2)
 
-            # 获取视频时长
-            probe = ffmpeg.probe(video_path)
-            video_duration = float(probe['format']['duration'])
+            # 获取 FFmpeg 路径
+            ffmpeg_dir = os.getenv("FFMPEG_PATH", "")
+            ffmpeg_cmd = os.path.join(ffmpeg_dir, "ffmpeg.exe") if ffmpeg_dir and os.path.exists(ffmpeg_dir) else "ffmpeg"
 
-            # 获取音频时长
-            audio_probe = ffmpeg.probe(audio_path)
-            audio_duration = float(audio_probe['format']['duration'])
-
-            # 构建 FFmpeg 命令
-            video = ffmpeg.input(video_path)
-            tts_audio = ffmpeg.input(audio_path)
-
-            # 调整音量
-            tts_audio = tts_audio.audio.filter('volume', tts_volume)
-            original_audio = video.audio.filter('volume', original_volume)
-
-            # 如果 TTS 音频比视频短，循环填充
-            if audio_duration < video_duration:
-                # 计算需要循环的次数
-                loops = int(video_duration / audio_duration) + 1
-                # 简化的处理：直接截断或淡入淡出
-                tts_audio = tts_audio.audio.trim(duration=video_duration)
-
-            # 淡出处理
-            if fade_out:
-                tts_audio = tts_audio.filter('afade', t='out', st=video_duration - fade_duration, d=fade_duration)
+            # 使用简单的方式：amix 混合音频
+            # 先调整 TTS 音量，再与视频原音混合
+            cmd = [
+                ffmpeg_cmd, '-y',
+                '-i', video_path,
+                '-i', audio_path,
+                '-filter_complex',
+                f'[1:a]volume={tts_volume}[tts];[0:a]volume={original_volume}[orig];[tts][orig]amix=inputs=2:duration=longest[aout]',
+                '-map', '0:v',
+                '-map', '[aout]',
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-shortest',
+                output_path
+            ]
 
             if progress_callback:
                 progress_callback(0.5)
 
-            # 混合音频
-            output = ffmpeg.output(
-                video,
-                tts_audio,
-                original_audio,
-                output_path,
-                vcodec='copy',
-                acodec='aac',
-                shortest=None
-            )
-
-            ffmpeg.run(output, overwrite_output=True, quiet=True)
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"Mix error: {result.stderr}")
+                return False
 
             if progress_callback:
                 progress_callback(1.0)
@@ -297,7 +290,8 @@ def add_tts_to_video(
     output_path: str,
     voice: str = "zh-CN-Xiaoxiao",
     tts_volume: float = 1.0,
-    original_volume: float = 0.3
+    original_volume: float = 0.3,
+    progress_callback=None
 ) -> bool:
     """
     为视频添加配音
@@ -309,11 +303,15 @@ def add_tts_to_video(
         voice: 音色
         tts_volume: TTS 音量
         original_volume: 原视频音量
+        progress_callback: 进度回调
 
     Returns:
         是否成功
     """
     import tempfile
+
+    if progress_callback:
+        progress_callback(0.1, "正在生成配音...")
 
     # 先生成 TTS 音频
     with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
@@ -323,12 +321,20 @@ def add_tts_to_video(
         if not TTSProcessor.text_to_speech_sync(text, tts_path, voice):
             return False
 
+        if progress_callback:
+            progress_callback(0.6, "正在混音...")
+
         # 混音
-        return TTSProcessor.mix_with_video(
+        success = TTSProcessor.mix_with_video(
             video_path, tts_path, output_path,
             tts_volume=tts_volume,
             original_volume=original_volume
         )
+
+        if progress_callback:
+            progress_callback(1.0, "配音完成")
+
+        return success
     finally:
         if os.path.exists(tts_path):
             os.unlink(tts_path)

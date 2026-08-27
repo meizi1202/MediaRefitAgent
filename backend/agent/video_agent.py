@@ -386,6 +386,10 @@ class VideoAgent:
             keep_audio=True,
             concat_explicit=False,
             trim_result=None,
+            restoration_preset=None,
+            restoration_preset_explicit=False,
+            editor_mode=None,
+            editor_mode_explicit=False,
         )
 
     def run(
@@ -452,7 +456,8 @@ class VideoAgent:
                     # pending_question 为 None，检查是否有明确参数
                     # 如果有，说明用户在修改参数，应该走 handle_user_response
                     if (state.get("orientation_explicit") or state.get("ratio_explicit")
-                        or state.get("strategy_explicit") or state.get("compression_explicit")):
+                        or state.get("strategy_explicit") or state.get("compression_explicit")
+                        or state.get("restoration_preset_explicit") or state.get("editor_mode_explicit")):
                         state["current_step"] = "waiting_for_user"
                     else:
                         # 重置关键状态，让流程重新走意图分析

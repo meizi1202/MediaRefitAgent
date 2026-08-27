@@ -24,6 +24,16 @@ PENDING_QUESTION_PARAMS = {
     "trim": {
         "时间": ["start_time", "end_time"],
     },
+    "condense": {
+        "缩编策略": ["condense_strategy"],
+        "目标时长": ["target_duration"],
+    },
+    "restore": {
+        "修复套餐": ["restoration_preset"],
+    },
+    "editor": {
+        "剪辑模式": ["editor_mode"],
+    },
 }
 
 # 参数标签映射：feature -> {param_name: label}
@@ -39,6 +49,16 @@ FEATURE_PARAM_LABELS = {
     "trim": {
         "start_time": "开始时间",
         "end_time": "结束时间",
+    },
+    "condense": {
+        "condense_strategy": "缩编策略",
+        "target_duration": "目标时长",
+    },
+    "restore": {
+        "restoration_preset": "修复套餐",
+    },
+    "editor": {
+        "editor_mode": "剪辑模式",
     },
 }
 
@@ -192,6 +212,79 @@ def _parse_answer_params(user_input: str, feature: str) -> dict:
                 result["concat_explicit"] = True
                 break
 
+    elif feature == "condense":
+        # 解析缩编策略（使用通用的 strategy key 以便状态传递）
+        strategy_map = [
+            ("内容缩编", "content_condense"),
+            ("智能压缩", "smart_compress"),
+        ]
+        for kw, strat in strategy_map:
+            if kw in text:
+                result["strategy"] = strat
+                result["strategy_explicit"] = True
+                break
+
+        # 解析目标时长（秒）
+        import re
+        duration_patterns = [
+            (r'(\d+)\s*[sS秒]', lambda m: int(m.group(1))),  # 60s, 60秒
+            (r'目标时长[:：]?\s*(\d+)', lambda m: int(m.group(1))),  # 目标时长60
+        ]
+        for pattern, extractor in duration_patterns:
+            match = re.search(pattern, text)
+            if match:
+                result["target_duration"] = extractor(match)
+                result["target_duration_explicit"] = True
+                break
+
+    elif feature == "restore":
+        # 解析修复套餐
+        preset_map = [
+            ("基础修复", "basic"),
+            ("胶片修复", "film"),
+            ("增强版", "enhanced"),
+        ]
+        for kw, preset in preset_map:
+            if kw in text:
+                result["restoration_preset"] = preset
+                result["restoration_preset_explicit"] = True
+                break
+
+    elif feature == "editor":
+        # 解析编辑器模式
+        mode_map = [
+            ("精彩片段", "highlight"),
+            ("自动字幕", "subtitle"),
+            ("添加转场", "transition"),
+            ("智能配乐", "bgm"),
+            ("配音", "tts"),
+            ("滤镜", "filter"),
+            ("内容分析", "analyze"),
+            ("封面生成", "cover"),
+            ("片头片尾", "title-package"),
+        ]
+        for kw, mode in mode_map:
+            if kw in text:
+                result["editor_mode"] = mode
+                result["editor_mode_explicit"] = True
+                break
+
+        # 解析滤镜预设（支持中文标签和原始值）
+        filter_map = [
+            ("黑白", "bw"), ("bw", "bw"),
+            ("复古", "vintage"), ("vintage", "vintage"),
+            ("电影感", "cinematic"), ("cinematic", "cinematic"),
+            ("清新", "fresh"), ("fresh", "fresh"),
+            ("暖色", "warm"), ("warm", "warm"),
+            ("冷色", "cold"), ("cold", "cold"),
+            ("无", "none"), ("none", "none"),
+        ]
+        for kw, preset in filter_map:
+            if kw in text:
+                result["filter_preset"] = preset
+                result["filter_preset_explicit"] = True
+                break
+
     return result
 
 
@@ -218,6 +311,23 @@ def _get_missing_params(feature: str, state: VideoAgentState) -> list[str]:
         if not state.get("end_time_explicit"):
             missing.append("end_time")
         return missing
+    elif feature == "condense":
+        missing = []
+        if not state.get("strategy_explicit"):
+            missing.append("缩编策略")
+        if not state.get("target_duration_explicit"):
+            missing.append("目标时长")
+        return missing
+    elif feature == "restore":
+        missing = []
+        if not state.get("restoration_preset_explicit"):
+            missing.append("修复套餐")
+        return missing
+    elif feature == "editor":
+        missing = []
+        if not state.get("editor_mode_explicit"):
+            missing.append("剪辑模式")
+        return missing
     return []
 
 
@@ -235,6 +345,10 @@ def _check_all_params_provided(feature: str, state: VideoAgentState) -> bool:
         return state.get("concat_explicit", False)
     elif feature == "restore":
         return state.get("restoration_preset_explicit", False)
+    elif feature == "editor":
+        return state.get("editor_mode_explicit", False)
+    elif feature == "condense":
+        return bool(state.get("strategy_explicit") and state.get("target_duration_explicit"))
     return True
 
 
@@ -252,6 +366,7 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
 
     print(f"[DEBUG handle_user_response] ENTER user_input={user_input}, pending_question={pending_question}, feature={feature}")
     print(f"[DEBUG handle_user_response] state: orient_explicit={state.get('orientation_explicit')}, ratio_explicit={state.get('ratio_explicit')}, strategy_explicit={state.get('strategy_explicit')}")
+    print(f"[DEBUG handle_user_response] state: strategy_explicit={state.get('strategy_explicit')}, target_duration_explicit={state.get('target_duration_explicit')}, strategy={state.get('strategy')}, target_duration={state.get('target_duration')}")
 
     # 0. 功能切换检测：基于用户最新输入识别目标
     old_feature = feature
@@ -267,6 +382,7 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
         state["compression_explicit"] = False
         state["start_time_explicit"] = False
         state["end_time_explicit"] = False
+        state["target_duration_explicit"] = False
         state["current_feature"] = identified_target
         state["current_step"] = "analyze_intent"
         return state
@@ -277,6 +393,7 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
         has_explicit_params = (
             state.get("orientation_explicit") or state.get("ratio_explicit")
             or state.get("strategy_explicit") or state.get("compression_explicit")
+            or state.get("strategy_explicit") or state.get("target_duration_explicit")
         )
         if not has_explicit_params:
             # 没有任何明确参数，退回到 analyze_intent 继续 LLM 解析
@@ -300,6 +417,7 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     # 2. 将解析结果写入 state
     for key, val in parsed.items():
         state[key] = val
+    print(f"[DEBUG handle_user_response] after writing parsed to state: condense_strategy={state.get('condense_strategy')}, target_duration={state.get('target_duration')}")
 
     # 3. 重新计算缺失参数（基于更新后的 state）
     remaining_missing = _get_missing_params(feature, state)
@@ -315,6 +433,7 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
         if execute_node:
             state["current_step"] = execute_node
             print(f"[DEBUG handle_user_response] -> {execute_node} (all params provided)")
+            print(f"[DEBUG handle_user_response] state after setting current_step: current_feature={state.get('current_feature')}, condense_strategy={state.get('condense_strategy')}, target_duration={state.get('target_duration')}")
             # 清除 combined_input 和 new_user_input
             state["combined_input"] = None
             state["new_user_input"] = None
@@ -402,6 +521,12 @@ def should_proceed(state: VideoAgentState) -> Literal["analyze_intent", "execute
         if feature == "concat" and all_params:
             print(f"[DEBUG should_proceed] -> execute_concat (all_params)")
             return "execute_concat"
+        if feature == "restore" and all_params:
+            print(f"[DEBUG should_proceed] -> execute_restore (all_params)")
+            return "execute_restore"
+        if feature == "editor" and all_params:
+            print(f"[DEBUG should_proceed] -> execute_editor (all_params)")
+            return "execute_editor"
         print(f"[DEBUG should_proceed] -> analyze_intent, return analyze_intent")
         return "analyze_intent"
 

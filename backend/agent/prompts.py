@@ -27,13 +27,13 @@ TOOL_RECOGNITION_PROMPT = """
 - 修剪、裁剪、截取 -> trim
 - 拼接、合并 -> concat
 - 修复、老视频、去噪 -> restore
-- 精彩片段、高光 -> highlight
-- 转场、过渡 -> transition
+- 精彩片段、高光、字幕、配乐、转场、滤镜、封面、片头片尾、智能剪辑 -> editor
+- 缩编、精简、缩短、智能缩编、内容缩编 -> condense
 
 【严格规则】
 - 用户说"转竖屏"、"竖屏"、"9:16"、"填充黑边"等任何转换相关 -> 必须返回 convert
 - 即使输入很短，只要涉及视频方向/比例/策略 -> 返回 convert
-- 只返回一个词：convert/compress/info/trim/concat/restore/highlight/transition/null"""
+- 只返回一个词：convert/compress/info/trim/concat/restore/editor/condense/null"""
 
 # ============ convert 工具 ============
 CONVERT_PARAM_PROMPT = """【任务】解析视频转换需求
@@ -178,6 +178,57 @@ TRANSITION_PARAM_PROMPT = """【任务】解析转场效果需求
 【输出格式】
 {{"transition_type_explicit":true/false,"transition_type":"fade/slide/zoom/blur/rotate/dissolve/null","transition_duration_explicit":true/false,"transition_duration":1.0,"response":"助手回复"}}"""
 
+# ============ condense 工具 ============
+CONDENSE_PARAM_PROMPT = """【任务】解析视频智能缩编需求
+
+{conversation_history}
+用户输入：{user_input}
+
+---
+
+策略：content_condense=内容缩编（保留精彩片段），smart_compress=智能压缩（H.265重编码）
+目标时长：target_duration=秒数，默认60秒
+
+【规则】用户已回答的用 explicit=true，未回答的用 explicit=false
+
+【输出格式】
+{{"condense_strategy_explicit":true/false,"condense_strategy":"content_condense/smart_compress/null","target_duration_explicit":true/false,"target_duration":60,"response":"助手回复"}}
+
+【示例】
+输入"缩编视频" -> {{"condense_strategy_explicit":false,"condense_strategy":null,"target_duration_explicit":false,"target_duration":60,"response":"好的，我来为您智能缩编视频。请问选择哪种策略？内容缩编/智能压缩"}}
+输入"内容缩编" -> {{"condense_strategy_explicit":true,"condense_strategy":"content_condense","target_duration_explicit":false,"target_duration":60,"response":"好的，使用内容缩编策略。请问目标时长是多少秒？"}}
+输入"缩编成30秒" -> {{"condense_strategy_explicit":false,"condense_strategy":null,"target_duration_explicit":true,"target_duration":30,"response":"好的，目标时长30秒。请问选择哪种策略？"}}
+输入"内容缩编，60秒" -> {{"condense_strategy_explicit":true,"condense_strategy":"content_condense","target_duration_explicit":true,"target_duration":60,"response":"好的，使用内容缩编策略，目标时长60秒，正在为您缩编..."}}"""
+
+# ============ editor 工具 ============
+EDITOR_PARAM_PROMPT = """【任务】解析智能剪辑需求
+
+{conversation_history}
+用户输入：{user_input}
+
+---
+
+剪辑模式：editor_mode=highlight(精彩片段)/subtitle(自动字幕)/transition(添加转场)/bgm(智能配乐)/tts(配音)/filter(滤镜)/analyze(内容分析)/cover(封面生成)/title-package(片头片尾)
+字幕样式：subtitle_style=default(默认)/minimal(简洁)
+转场类型：transition_type=fade(淡入淡出)/slide(滑动)/zoom(缩放)
+音乐风格：bgm_mood=auto(自动)/happy(欢快)/calm(平静)/energetic(动感)
+滤镜预设：filter_preset=none(无)/vintage(复古)/cinematic(电影感)/fresh(清新)/bw(黑白)/warm(暖色)/cold(冷色)
+目标平台：platform=douyin(抖音)/kuaishou(快手)/bilibili(B站)/xiaohongshu(小红书)
+目标时长：target_duration=秒数，默认60秒
+
+【规则】用户已回答的用 explicit=true，未回答的用 explicit=false
+
+【输出格式】
+{{"editor_mode_explicit":true/false,"editor_mode":"highlight/subtitle/transition/bgm/tts/filter/analyze/cover/title-package/null","subtitle_style_explicit":true/false,"subtitle_style":"default/minimal/null","transition_type_explicit":true/false,"transition_type":"fade/slide/zoom/null","bgm_mood_explicit":true/false,"bgm_mood":"auto/happy/calm/energetic/null","filter_preset_explicit":true/false,"filter_preset":"none/vintage/cinematic/fresh/bw/warm/cold/null","platform_explicit":true/false,"platform":"douyin/kuaishou/bilibili/xiaohongshu/null","target_duration_explicit":true/false,"target_duration":60,"response":"助手回复"}}
+
+【示例】
+输入"智能剪辑" -> {{"editor_mode_explicit":false,"editor_mode":null,"response":"好的，我来为您进行智能剪辑。请选择剪辑模式：精彩片段/自动字幕/添加转场/智能配乐/配音/滤镜/内容分析/封面生成/片头片尾"}}
+输入"精彩片段" -> {{"editor_mode_explicit":true,"editor_mode":"highlight","response":"好的，使用精彩片段模式。请问目标时长是多少秒？"}}
+输入"智能配乐" -> {{"editor_mode_explicit":true,"editor_mode":"bgm","bgm_mood_explicit":false,"response":"好的，使用智能配乐模式。请问选择什么音乐风格？自动/欢快/平静/动感"}}
+输入"添加转场" -> {{"editor_mode_explicit":true,"editor_mode":"transition","transition_type_explicit":false,"response":"好的，使用添加转场模式。请问选择什么转场类型？淡入淡出/滑动/缩放"}}
+输入"滤镜" -> {{"editor_mode_explicit":true,"editor_mode":"filter","filter_preset_explicit":false,"response":"好的，使用滤镜模式。请问选择什么滤镜？无/复古/电影感/清新/黑白/暖色/冷色"}}
+输入"精彩片段，60秒" -> {{"editor_mode_explicit":true,"editor_mode":"highlight","target_duration_explicit":true,"target_duration":60,"response":"好的，使用精彩片段模式，目标时长60秒，正在为您处理..."}}"""
+
 # ============ 工具映射 ============
 TOOL_PROMPTS = {
     "convert": CONVERT_PARAM_PROMPT,
@@ -185,10 +236,10 @@ TOOL_PROMPTS = {
     "trim": TRIM_PARAM_PROMPT,
     "concat": CONCAT_PARAM_PROMPT,
     "restore": RESTORE_PARAM_PROMPT,
-    "highlight": HIGHLIGHT_PARAM_PROMPT,
-    "transition": TRANSITION_PARAM_PROMPT,
+    "editor": EDITOR_PARAM_PROMPT,
+    "condense": CONDENSE_PARAM_PROMPT,
     "info": INFO_PARAM_PROMPT,
 }
 
 # ============ 通用响应模板 ============
-NULL_RESPONSE = "抱歉，我没有理解您的需求。您是想转换视频方向、压缩视频、修剪视频还是获取视频信息？"
+NULL_RESPONSE = "抱歉，我没有理解您的需求。您是想转换视频方向、压缩视频、修剪视频、缩编视频还是获取视频信息？"

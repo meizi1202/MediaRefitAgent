@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional, Literal
 
 from video.platforms import PLATFORM_SETTINGS
+from settings import FFMPEG_PRESET_ANALYSIS
 
 
 class VideoAnalyzer:
@@ -448,7 +449,7 @@ class PlatformAdapter:
                 acodec='aac',
                 b=settings["bitrate"],
                 r=settings["fps"],
-                preset='medium',
+                preset=FFMPEG_PRESET_ANALYSIS,
                 crf=23
             )
 
@@ -654,10 +655,10 @@ class TitleGenerator:
                                        text=txt,
                                        fontfile='C:/Windows/Fonts/simhei.ttf',
                                        fontsize=72,
-                                       fontcolor=white,
+                                       fontcolor='white',
                                        x='(w-text_w)/2',
                                        y='(h-text_h)/2',
-                                       enable='between(t,0,{dur})')
+                                       enable=f'between(t,0,{dur})')
             else:
                 stream = ffmpeg.input(f'color=c=black:s=1080x1920:d={dur}', f='lavfi')
 
@@ -711,7 +712,7 @@ class TitleGenerator:
                                        text=txt,
                                        fontfile='C:/Windows/Fonts/simhei.ttf',
                                        fontsize=72,
-                                       fontcolor=white,
+                                       fontcolor='white',
                                        x='(w-text_w)/2',
                                        y='(h-text_h)/2')
 
@@ -816,12 +817,12 @@ class TitleGenerator:
                                    text=watermark_text,
                                    fontfile='C:/Windows/Fonts/simhei.ttf',
                                    fontsize=36,
-                                   fontcolor=white@0.5,
+                                   fontcolor='white@0.5',
                                    x=pos.split(':')[0],
                                    y=pos.split(':')[1] if ':' in pos else pos,
                                    enable='between(t,0,99999)')
 
-            output = ffmpeg.output(stream, output_path, vcodec='libx264', acodec='copy', preset='fast')
+            output = ffmpeg.output(stream, output_path, vcodec='libx264', acodec='copy', preset=FFMPEG_PRESET_ANALYSIS)
             ffmpeg.run(output, overwrite_output=True, quiet=True)
 
             if progress_callback:

@@ -74,16 +74,19 @@ def transcribe_with_whisper(
     """
     import whisper
 
+    print(f"[DEBUG transcribe_with_whisper] loading model={model_size}")
     if progress_callback:
         progress_callback(0.1)
 
     # 加载模型
     model = whisper.load_model(model_size)
+    print(f"[DEBUG transcribe_with_whisper] model loaded, starting transcription")
     if progress_callback:
         progress_callback(0.3)
 
     # 识别
     result = model.transcribe(audio_path, language=language)
+    print(f"[DEBUG transcribe_with_whisper] transcription done")
     if progress_callback:
         progress_callback(0.8)
 
@@ -314,6 +317,7 @@ def full_transcribe_pipeline(
     Returns:
         FunClipASRResult 或 None
     """
+    print(f"[DEBUG full_transcribe_pipeline] START, video_path={video_path}")
     os.makedirs(output_dir, exist_ok=True)
 
     audio_path = os.path.join(output_dir, "audio.wav")

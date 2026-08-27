@@ -244,6 +244,137 @@ def _parse_ui_params(user_input: str) -> dict:
             result["end_time_explicit"] = True
             result["found"] = True
 
+    # 解析缩编策略
+    condense_strategy_match = re.search(r'缩编策略\s*=\s*([^，,\]]+)', user_input)
+    if condense_strategy_match:
+        strategy_text = condense_strategy_match.group(1).strip()
+        strategy_map = {
+            "内容缩编": "content_condense", "智能压缩": "smart_compress",
+        }
+        for name, strategy in strategy_map.items():
+            if name in strategy_text:
+                result["condense_strategy"] = strategy
+                result["condense_strategy_text"] = name
+                result["found"] = True
+                break
+
+    # 解析目标时长
+    duration_match = re.search(r'目标时长\s*=\s*(\d+\.?\d*)秒', user_input)
+    if duration_match:
+        result["target_duration"] = float(duration_match.group(1))
+        result["target_duration_explicit"] = True
+        result["found"] = True
+
+    # 解析修复套餐
+    restore_preset_match = re.search(r'修复套餐\s*=\s*([^，,\]]+)', user_input)
+    if restore_preset_match:
+        preset_text = restore_preset_match.group(1).strip()
+        preset_map = {
+            "基础修复": "basic", "胶片修复": "film", "增强版": "enhanced",
+        }
+        for name, preset in preset_map.items():
+            if name in preset_text:
+                result["restoration_preset"] = preset
+                result["restoration_preset_explicit"] = True
+                result["found"] = True
+                break
+
+    # 解析编辑器模式
+    editor_mode_match = re.search(r'编辑器模式\s*=\s*([^，,\]]+)', user_input)
+    if editor_mode_match:
+        mode_text = editor_mode_match.group(1).strip()
+        mode_map = {
+            "精彩片段": "highlight", "自动字幕": "subtitle", "添加转场": "transition",
+            "智能配乐": "bgm", "配音": "tts", "滤镜": "filter",
+            "内容分析": "analyze", "封面生成": "cover", "片头片尾": "title-package",
+        }
+        for name, mode in mode_map.items():
+            if name in mode_text:
+                result["editor_mode"] = mode
+                result["editor_mode_explicit"] = True
+                result["found"] = True
+                break
+
+    # 解析字幕样式
+    subtitle_style_match = re.search(r'字幕样式\s*=\s*([^，,\]]+)', user_input)
+    if subtitle_style_match:
+        style_text = subtitle_style_match.group(1).strip()
+        style_map = {"默认": "default", "简洁": "minimal"}
+        for name, style in style_map.items():
+            if name in style_text:
+                result["subtitle_style"] = style
+                result["subtitle_style_explicit"] = True
+                result["found"] = True
+                break
+
+    # 解析转场类型
+    transition_type_match = re.search(r'转场类型\s*=\s*([^，,\]]+)', user_input)
+    if transition_type_match:
+        trans_text = transition_type_match.group(1).strip()
+        trans_map = {"淡入淡出": "fade", "滑动": "slide", "缩放": "zoom"}
+        for name, trans in trans_map.items():
+            if name in trans_text:
+                result["transition_type"] = trans
+                result["transition_type_explicit"] = True
+                result["found"] = True
+                break
+
+    # 解析音乐风格
+    bgm_mood_match = re.search(r'音乐风格\s*=\s*([^，,\]]+)', user_input)
+    if bgm_mood_match:
+        mood_text = bgm_mood_match.group(1).strip()
+        mood_map = {"自动": "auto", "欢快": "happy", "平静": "calm", "动感": "energetic"}
+        for name, mood in mood_map.items():
+            if name in mood_text:
+                result["bgm_mood"] = mood
+                result["bgm_mood_explicit"] = True
+                result["found"] = True
+                break
+
+    # 解析滤镜预设
+    filter_preset_match = re.search(r'滤镜预设\s*=\s*([^，,\]]+)', user_input)
+    if filter_preset_match:
+        filter_text = filter_preset_match.group(1).strip()
+        # 支持中文标签和原始值
+        filter_map = {
+            "无": "none", "none": "none",
+            "复古": "vintage", "vintage": "vintage",
+            "电影感": "cinematic", "cinematic": "cinematic",
+            "清新": "fresh", "fresh": "fresh",
+            "黑白": "bw", "bw": "bw",
+            "暖色": "warm", "warm": "warm",
+            "冷色": "cold", "cold": "cold",
+        }
+        for name, f in filter_map.items():
+            if name in filter_text:
+                result["filter_preset"] = f
+                result["filter_preset_explicit"] = True
+                result["found"] = True
+                break
+
+    # 解析配音音色
+    tts_voice_match = re.search(r'配音音色\s*=\s*([^，,\]]+)', user_input)
+    if tts_voice_match:
+        voice_text = tts_voice_match.group(1).strip()
+        voice_map = {
+            "晓晓": "zh-CN-XiaoxiaoNeural", "小艺": "zh-CN-XiaoyiNeural",
+            "云希": "zh-CN-YunxiNeural", "云扬": "zh-CN-YunyangNeural",
+            "辽宁": "zh-CN-liaoning", "陕西": "zh-CN-shaanxi",
+        }
+        for name, voice in voice_map.items():
+            if name in voice_text:
+                result["tts_voice"] = voice
+                result["tts_voice_explicit"] = True
+                result["found"] = True
+                break
+
+    # 解析配音文本
+    tts_text_match = re.search(r'配音文本\s*=\s*([^，,\]]+)', user_input)
+    if tts_text_match:
+        result["tts_text"] = tts_text_match.group(1).strip()
+        result["tts_text_explicit"] = True
+        result["found"] = True
+
     return result
 
 
@@ -271,7 +402,7 @@ def _handle_compress_ui(state, ui_params):
     return f"好的，我将把视频压缩为{level_text}质量。", True
 
 
-def _handle_info_ui(state):
+def _handle_info_ui(state, ui_params):
     """处理 info - UI 参数"""
     return "好的，我来获取视频的详细信息。", True
 
@@ -299,19 +430,101 @@ def _handle_concat_ui(state):
     return "好的，我来拼接视频。", True
 
 
-def _handle_condense_ui(state):
+def _handle_condense_ui(state, ui_params):
     """处理 condense - UI 参数"""
-    return "好的，我来处理智能缩编。", True
+    strategy = ui_params.get("condense_strategy")
+    target_duration = ui_params.get("target_duration")
+    # 使用 strategy 兼容 routing.py 和 execute_condense 的读取方式
+    state["strategy"] = strategy
+    state["target_duration"] = target_duration
+    state["strategy_explicit"] = ui_params.get("condense_strategy") is not None
+    state["target_duration_explicit"] = ui_params.get("target_duration_explicit", False)
+
+    # 判断参数完整性（必须用户明确选择）
+    all_params = state["strategy_explicit"] and state["target_duration_explicit"]
+
+    if all_params:
+        strategy_text = ui_params.get("condense_strategy_text", "内容缩编")
+        duration_text = target_duration
+        return f"好的，使用{strategy_text}策略，目标时长{duration_text}秒。", all_params
+    else:
+        missing = []
+        if not state["strategy_explicit"]:
+            missing.append("缩编策略")
+        if not state["target_duration_explicit"]:
+            missing.append("目标时长")
+
+        # 构造策略提示
+        strategy_tips = """
+可选的缩编策略：
+1. 内容缩编 - 保留视频中的精彩片段，智能筛选高光内容，适合想要精简内容突出重点
+2. 智能压缩 - 通过 H.265 重编码压缩视频体积，保持内容完整，适合想要减小文件大小
+3. 智能裁剪 - AI 主体检测，智能裁剪画面，适合想要重新构图"""
+
+        pending_q = f"请选择{'/'.join(missing)}"
+        if not state["strategy_explicit"] and not state["target_duration_explicit"]:
+            return f"好的，我来处理智能缩编。{pending_q}？{strategy_tips}", False, pending_q
+        elif not state["strategy_explicit"]:
+            return f"好的，{pending_q}？{strategy_tips}", False, pending_q
+        else:
+            return f"好的，{pending_q}（如：30秒、60秒、120秒）", False, pending_q
 
 
-def _handle_restore_ui(state):
+def _handle_restore_ui(state, ui_params):
     """处理 restore - UI 参数"""
-    return "好的，我来处理老视频修复。", True
+    preset = ui_params.get("restoration_preset", "basic")
+    state["restoration_preset"] = preset
+    state["restoration_preset_explicit"] = ui_params.get("restoration_preset_explicit", False)
+    preset_names = {"basic": "基础修复", "film": "胶片修复", "enhanced": "增强版"}
+    preset_text = preset_names.get(preset, preset)
+    return f"好的，使用{preset_text}套餐进行老视频修复。", True
 
 
-def _handle_editor_ui(state):
+def _handle_editor_ui(state, ui_params):
     """处理 editor - UI 参数"""
-    return "好的，我来处理智能剪辑。", True
+    # 解析编辑器模式
+    editor_mode = ui_params.get("editor_mode")
+    editor_mode_explicit = ui_params.get("editor_mode_explicit", False)
+    state["editor_mode"] = editor_mode
+    state["editor_mode_explicit"] = editor_mode_explicit
+
+    # 解析字幕样式
+    if ui_params.get("subtitle_style"):
+        state["subtitle_style"] = ui_params.get("subtitle_style")
+        state["subtitle_style_explicit"] = ui_params.get("subtitle_style_explicit", False)
+
+    # 解析转场类型
+    if ui_params.get("transition_type"):
+        state["transition_type"] = ui_params.get("transition_type")
+        state["transition_type_explicit"] = ui_params.get("transition_type_explicit", False)
+
+    # 解析音乐风格
+    if ui_params.get("bgm_mood"):
+        state["bgm_mood"] = ui_params.get("bgm_mood")
+        state["bgm_mood_explicit"] = ui_params.get("bgm_mood_explicit", False)
+
+    # 解析滤镜预设
+    if ui_params.get("filter_preset"):
+        state["filter_preset"] = ui_params.get("filter_preset")
+        state["filter_preset_explicit"] = ui_params.get("filter_preset_explicit", False)
+
+    # 解析配音音色
+    if ui_params.get("tts_voice"):
+        state["tts_voice"] = ui_params.get("tts_voice")
+        state["tts_voice_explicit"] = ui_params.get("tts_voice_explicit", False)
+
+    # 解析配音文本
+    if ui_params.get("tts_text"):
+        state["tts_text"] = ui_params.get("tts_text")
+        state["tts_text_explicit"] = ui_params.get("tts_text_explicit", False)
+
+    mode_names = {
+        "highlight": "精彩片段", "subtitle": "自动字幕", "transition": "添加转场",
+        "bgm": "智能配乐", "tts": "配音", "filter": "滤镜",
+        "analyze": "内容分析", "cover": "封面生成", "title-package": "片头片尾",
+    }
+    mode_text = mode_names.get(editor_mode, "智能剪辑")
+    return f"好的，使用{mode_text}模式进行智能剪辑。", True
 
 
 def _handle_convert_llm(state, parsed, local_parsed):
@@ -480,14 +693,192 @@ def _handle_concat_llm(state, parsed):
     return "请确认是否要进行视频拼接。", False, "请确认是否拼接"
 
 
-def _handle_restore_llm(state):
+def _handle_restore_llm(state, parsed):
     """处理 restore - LLM 参数"""
-    return "好的，我来处理老视频修复。", True, None
+    # LLM 返回的 key 是 "preset"，UI 参数解析用 "restoration_preset"
+    preset = parsed.get("restoration_preset") or parsed.get("preset") or state.get("restoration_preset")
+    preset_explicit = parsed.get("restoration_preset_explicit", False) or parsed.get("preset_explicit", False)
+    llm_response_text = parsed.get("response", "")
+
+    # LLM fallback
+    if not preset_explicit:
+        preset_explicit = state.get("restoration_preset_explicit", False)
+    if not preset:
+        preset = state.get("restoration_preset", "basic")
+
+    state["restoration_preset"] = preset
+    state["restoration_preset_explicit"] = preset_explicit
+
+    if preset_explicit:
+        # 参数完整时使用 LLM 的详细响应（包含套餐描述），并拼接执行提示
+        preset_names = {"basic": "基础修复", "film": "胶片修复", "enhanced": "增强版"}
+        preset_text = preset_names.get(preset, preset)
+        # 如果 LLM 有详细响应，追加执行提示
+        if llm_response_text:
+            exec_hint = f"，正在处理..."
+            full_msg = llm_response_text + exec_hint
+        else:
+            full_msg = f"好的，使用{preset_text}套餐进行老视频修复，正在处理..."
+        return full_msg, True, None
+    else:
+        return "好的，我来处理老视频修复。请选择修复套餐：基础修复（去噪、去抖动、色彩校正）、胶片修复（基础+划痕、闪烁修复）、增强版（完整+补帧、超分辨率）", False, "请选择修复套餐"
 
 
-def _handle_editor_llm(state):
+def _handle_editor_llm(state, parsed, local_parsed):
     """处理 editor - LLM 参数"""
-    return "好的，我来处理智能剪辑。", True, None
+    # 解析编辑器模式
+    editor_mode = parsed.get("editor_mode") or state.get("editor_mode")
+    editor_mode_explicit = parsed.get("editor_mode_explicit", False) or state.get("editor_mode_explicit", False)
+
+    # 字幕样式
+    subtitle_style = parsed.get("subtitle_style") or local_parsed.get("subtitle_style") or state.get("subtitle_style")
+    subtitle_style_explicit = parsed.get("subtitle_style_explicit", False) or state.get("subtitle_style_explicit", False)
+
+    # 转场类型
+    transition_type = parsed.get("transition_type") or local_parsed.get("transition_type") or state.get("transition_type")
+    transition_type_explicit = parsed.get("transition_type_explicit", False) or state.get("transition_type_explicit", False)
+
+    # 目标时长
+    target_duration = parsed.get("target_duration") or local_parsed.get("target_duration") or state.get("target_duration")
+    target_duration_explicit = parsed.get("target_duration_explicit", False) or state.get("target_duration_explicit", False)
+
+    # 音乐风格
+    bgm_mood = parsed.get("bgm_mood") or local_parsed.get("bgm_mood") or state.get("bgm_mood")
+    bgm_mood_explicit = parsed.get("bgm_mood_explicit", False) or state.get("bgm_mood_explicit", False)
+
+    # 滤镜预设
+    filter_preset = parsed.get("filter_preset") or local_parsed.get("filter_preset") or state.get("filter_preset")
+    filter_preset_explicit = parsed.get("filter_preset_explicit", False) or state.get("filter_preset_explicit", False)
+
+    # 配音音色
+    tts_voice = parsed.get("tts_voice") or local_parsed.get("tts_voice") or state.get("tts_voice")
+    tts_voice_explicit = parsed.get("tts_voice_explicit", False) or state.get("tts_voice_explicit", False)
+
+    # 配音文本
+    tts_text = parsed.get("tts_text") or local_parsed.get("tts_text") or state.get("tts_text")
+    tts_text_explicit = parsed.get("tts_text_explicit", False) or state.get("tts_text_explicit", False)
+
+    # 平台
+    platform = parsed.get("platform") or local_parsed.get("platform") or state.get("platform")
+    platform_explicit = parsed.get("platform_explicit", False) or state.get("platform_explicit", False)
+
+    # 更新 state
+    if editor_mode:
+        state["editor_mode"] = editor_mode
+    if editor_mode_explicit or state.get("editor_mode_explicit"):
+        state["editor_mode_explicit"] = True
+    if subtitle_style:
+        state["subtitle_style"] = subtitle_style
+    if subtitle_style_explicit:
+        state["subtitle_style_explicit"] = True
+    if transition_type:
+        state["transition_type"] = transition_type
+    if transition_type_explicit:
+        state["transition_type_explicit"] = True
+    if target_duration:
+        state["target_duration"] = int(target_duration)
+    if target_duration_explicit:
+        state["target_duration_explicit"] = True
+    if bgm_mood:
+        state["bgm_mood"] = bgm_mood
+    if bgm_mood_explicit:
+        state["bgm_mood_explicit"] = True
+    if filter_preset:
+        state["filter_preset"] = filter_preset
+    if filter_preset_explicit:
+        state["filter_preset_explicit"] = True
+    if tts_voice:
+        state["tts_voice"] = tts_voice
+    if tts_voice_explicit:
+        state["tts_voice_explicit"] = True
+    if tts_text:
+        state["tts_text"] = tts_text
+    if tts_text_explicit:
+        state["tts_text_explicit"] = True
+    if platform:
+        state["platform"] = platform
+    if platform_explicit:
+        state["platform_explicit"] = True
+
+    # 判断参数完整性（editor_mode 必须明确，tts 模式还需要 tts_text）
+    all_params = state.get("editor_mode_explicit", False)
+    if editor_mode == "tts" and not state.get("tts_text_explicit"):
+        all_params = False
+
+    mode_names = {
+        "highlight": "精彩片段", "subtitle": "自动字幕", "transition": "添加转场",
+        "bgm": "智能配乐", "tts": "配音", "filter": "滤镜",
+        "analyze": "内容分析", "cover": "封面生成", "title-package": "片头片尾",
+    }
+    mode_text = mode_names.get(editor_mode, "智能剪辑")
+
+    if all_params:
+        msg = f"好的，使用{mode_text}模式进行智能剪辑，正在处理..."
+        return msg, True, None
+    else:
+        # tts 模式缺少配音文本时，提示输入
+        if editor_mode == "tts" and not state.get("tts_text_explicit"):
+            return "好的，使用配音模式进行智能剪辑。请输入配音文本", False, "请输入配音文本"
+        mode_options = "、".join(mode_names.values())
+        return f"好的，我来处理智能剪辑。请选择剪辑模式：{mode_options}", False, "请选择剪辑模式"
+
+
+def _handle_condense_llm(state, parsed, local_parsed):
+    """处理 condense - LLM 参数"""
+    # 使用 strategy 兼容 execute_condense 的读取方式
+    strategy = parsed.get("condense_strategy") or local_parsed.get("condense_strategy")
+    strategy_explicit = parsed.get("condense_strategy_explicit", False)
+    target_duration = parsed.get("target_duration")
+    target_duration_explicit = parsed.get("target_duration_explicit", False)
+
+    # 本地关键词补充
+    if not strategy and local_parsed.get("condense_strategy"):
+        strategy = local_parsed["condense_strategy"]
+        strategy_explicit = True
+    if not target_duration and local_parsed.get("target_duration"):
+        target_duration = local_parsed["target_duration"]
+        target_duration_explicit = True
+
+    # 更新状态
+    if strategy:
+        state["strategy"] = strategy
+    if target_duration:
+        state["target_duration"] = target_duration
+    state["strategy_explicit"] = strategy_explicit
+    state["target_duration_explicit"] = target_duration_explicit
+
+    # 判断参数完整性（必须用户明确指定，不能有默认值）
+    all_params = strategy_explicit and target_duration_explicit
+
+    if all_params:
+        strategy_names = {
+            "content_condense": "内容缩编",
+            "smart_compress": "智能压缩",
+            "smart_crop": "智能裁剪",
+        }
+        strategy_text = strategy_names.get(strategy, strategy)
+        return f"好的，使用{strategy_text}策略，目标时长{target_duration}秒，正在为您缩编...", True, None
+    else:
+        missing = []
+        if not strategy_explicit:
+            missing.append("缩编策略")
+        if not target_duration_explicit:
+            missing.append("目标时长")
+
+        # 构造策略提示
+        strategy_tips = """
+可选的缩编策略：
+1. 内容缩编 - 保留视频中的精彩片段，智能筛选高光内容，适合想要精简内容突出重点
+2. 智能压缩 - 通过 H.265 重编码压缩视频体积，保持内容完整，适合想要减小文件大小
+3. 智能裁剪 - AI 主体检测，智能裁剪画面，适合想要重新构图"""
+
+        pending_q = f"请选择{'/'.join(missing)}"
+        if not strategy_explicit and not target_duration_explicit:
+            return f"好的，我来处理智能缩编。{pending_q}？{strategy_tips}", False, pending_q
+        elif not strategy_explicit:
+            return f"好的，{pending_q}？{strategy_tips}", False, pending_q
+        else:
+            return f"好的，{pending_q}（如：30秒、60秒、120秒）", False, pending_q
 
 
 def analyze_intent(state: VideoAgentState) -> VideoAgentState:
@@ -594,8 +985,9 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         "info": lambda: _handle_info_llm(state, llm_response),
         "trim": lambda: _handle_trim_llm(state, parsed or {}),
         "concat": lambda: _handle_concat_llm(state, parsed or {}),
-        "restore": lambda: (_handle_restore_llm(state)),
-        "editor": lambda: (_handle_editor_llm(state)),
+        "restore": lambda: (_handle_restore_llm(state, parsed or {})),
+        "editor": lambda: (_handle_editor_llm(state, parsed or {}, local_parsed)),
+        "condense": lambda: _handle_condense_llm(state, parsed or {}, local_parsed),
     }
 
     handler = feature_handlers.get(target_feature)
