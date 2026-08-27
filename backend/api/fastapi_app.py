@@ -28,7 +28,12 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
+
+from settings import MUSIC_LIBRARY_DIR
 from pydantic import BaseModel, Field
+
+# 中文情绪名转英文 key（跨函数复用）
+MOOD_MAP = {"自动": "auto", "欢快": "happy", "平静": "calm", "动感": "energetic", "悲伤": "sad", "史诗": "epic", "商务": "corporate"}
 import json
 
 # 允许嵌套事件循环（解决 TTS asyncio.run 问题）
@@ -1886,12 +1891,15 @@ async def api_editor_bgm(
         from video.bgm import find_matching_bgm, add_bgm_to_video
         from video.processor import get_video_metadata
 
+        # 中文情绪名转英文 key（防御性映射）
+        mood = MOOD_MAP.get(mood, mood)
+
         # 获取视频时长
         metadata = get_video_metadata(input_path)
         duration = metadata.duration if metadata else 60
 
         # 查找匹配的BGM
-        bgm_info = find_matching_bgm(mood=mood, duration=duration)
+        bgm_info = find_matching_bgm(mood=mood, duration=duration, music_dir=MUSIC_LIBRARY_DIR)
 
         if not bgm_info:
             raise HTTPException(
@@ -2248,15 +2256,16 @@ async def api_editor_short_video(
         # Step 4: 添加 BGM
         if add_bgm:
             steps.append("添加背景音乐")
-            bgm_info = find_matching_bgm(mood=bgm_mood, duration=video_duration)
+            _bgm_mood = MOOD_MAP.get(bgm_mood, bgm_mood)
+            bgm_info = find_matching_bgm(mood=_bgm_mood, duration=video_duration, music_dir=MUSIC_LIBRARY_DIR)
             if bgm_info:
                 temp_output = os.path.join(base_dir, f"temp_bgm_{Path(file.filename).stem}{suffix}")
                 success = add_bgm_to_video(
                     video_path=current_path,
                     audio_path=bgm_info["path"],
                     output_path=temp_output,
-                    video_volume=0.3,
-                    bgm_volume=0.5,
+                    video_volume=0.7,
+                    bgm_volume=0.3,
                     fade_out=True,
                     fade_duration=3.0
                 )

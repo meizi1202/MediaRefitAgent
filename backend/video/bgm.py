@@ -45,6 +45,15 @@ class MusicMatcher:
 
     def _get_default_music_dir(self) -> Path:
         """获取默认音乐目录"""
+        # 优先使用 settings 中的配置
+        try:
+            from settings import MUSIC_LIBRARY_DIR
+            if MUSIC_LIBRARY_DIR:
+                p = Path(MUSIC_LIBRARY_DIR)
+                if p.exists():
+                    return p
+        except Exception:
+            pass
         # 尝试常见音乐目录
         possible_dirs = [
             Path.home() / "Music",
@@ -162,6 +171,7 @@ class BGMProcessor:
             是否成功
         """
         import ffmpeg
+        import subprocess
 
         try:
             if progress_callback:
@@ -171,43 +181,54 @@ class BGMProcessor:
             probe = ffmpeg.probe(video_path)
             video_duration = float(probe['format']['duration'])
 
-            # 构建 FFmpeg 命令
-            video_stream = ffmpeg.input(video_path)
-            audio_stream = ffmpeg.input(audio_path)
+            # 预处理音频
+            audio_probe = ffmpeg.probe(audio_path)
+            audio_duration = float(audio_probe['format']['duration'])
 
-            # 调整音量
-            video_stream = video_stream.audio.filter('volume', video_volume)
-            audio_stream = audio_stream.filter('volume', bgm_volume)
+            # 构建 filter_complex 字符串
+            # 注意：volume 缩放和 amix weights 会叠加，只在 amix 中控制比例即可
+            filter_parts = []
+            filter_parts.append("[0:a]anull[vol_video]")
+            filter_parts.append("[1:a]anull[vol_bgm]")
 
-            # 如果音乐比视频长，进行裁剪
-            # 先获取音频时长
-            try:
-                audio_probe = ffmpeg.probe(audio_path)
-                audio_duration = float(audio_probe['format']['duration'])
-                if audio_duration > video_duration:
-                    audio_stream = audio_stream.trim(duration=video_duration)
-            except Exception:
-                pass
+            # BGM 裁剪
+            if audio_duration > video_duration:
+                filter_parts.append(f"[vol_bgm]atrim=duration={video_duration}[vol_bgm_trim]")
+            else:
+                filter_parts.append("[vol_bgm]anull[vol_bgm_trim]")
 
-            # 淡出处理
+            # 淡出
             if fade_out:
-                audio_stream = audio_stream.filter('afade', t='out', st=video_duration - fade_duration, d=fade_duration)
+                fade_start = max(0, video_duration - fade_duration)
+                filter_parts.append(f"[vol_bgm_trim]afade=t=out:st={fade_start}:d={fade_duration}[vol_bgm_fade]")
+            else:
+                filter_parts.append("[vol_bgm_trim]anull[vol_bgm_fade]")
+
+            # 混合（weights 控制比例，不再需要 normalize）
+            filter_parts.append(f"[vol_video][vol_bgm_fade]amix=inputs=2:duration=first:weights={video_volume} {bgm_volume}:normalize=0[out_a]")
+
+            filter_complex = ";".join(filter_parts)
 
             if progress_callback:
                 progress_callback(0.3)
 
-            # 混合音频
-            output = ffmpeg.output(
-                video_stream,
-                audio_stream,
-                output_path,
-                vcodec='copy',  # 保留视频编码
-                acodec='aac',
-                shortest=None
-            )
+            # 直接构造 ffmpeg 命令行
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', video_path,
+                '-i', audio_path,
+                '-filter_complex', filter_complex,
+                '-map', '0:v',
+                '-map', '[out_a]',
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                output_path
+            ]
 
-            # 执行
-            ffmpeg.run(output, overwrite_output=True, quiet=True)
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"FFmpeg error: {result.stderr}")
+                raise Exception(result.stderr)
 
             if progress_callback:
                 progress_callback(1.0)

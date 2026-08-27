@@ -331,6 +331,13 @@ def _parse_ui_params(user_input: str) -> dict:
                 result["found"] = True
                 break
 
+    # 解析BGM音量
+    bgm_volume_match = re.search(r'BGM音量\s*=\s*(\d+\.?\d*)', user_input)
+    if bgm_volume_match:
+        result["bgm_volume"] = float(bgm_volume_match.group(1))
+        result["bgm_volume_explicit"] = True
+        result["found"] = True
+
     # 解析滤镜预设
     filter_preset_match = re.search(r'滤镜预设\s*=\s*([^，,\]]+)', user_input)
     if filter_preset_match:
@@ -502,6 +509,11 @@ def _handle_editor_ui(state, ui_params):
     if ui_params.get("bgm_mood"):
         state["bgm_mood"] = ui_params.get("bgm_mood")
         state["bgm_mood_explicit"] = ui_params.get("bgm_mood_explicit", False)
+
+    # 解析BGM音量
+    if ui_params.get("bgm_volume") is not None:
+        state["bgm_volume"] = ui_params.get("bgm_volume")
+        state["bgm_volume_explicit"] = ui_params.get("bgm_volume_explicit", False)
 
     # 解析滤镜预设
     if ui_params.get("filter_preset"):
@@ -746,6 +758,10 @@ def _handle_editor_llm(state, parsed, local_parsed):
     bgm_mood = parsed.get("bgm_mood") or local_parsed.get("bgm_mood") or state.get("bgm_mood")
     bgm_mood_explicit = parsed.get("bgm_mood_explicit", False) or state.get("bgm_mood_explicit", False)
 
+    # BGM音量
+    bgm_volume = parsed.get("bgm_volume") or local_parsed.get("bgm_volume") or state.get("bgm_volume")
+    bgm_volume_explicit = parsed.get("bgm_volume_explicit", False) or state.get("bgm_volume_explicit", False)
+
     # 滤镜预设
     filter_preset = parsed.get("filter_preset") or local_parsed.get("filter_preset") or state.get("filter_preset")
     filter_preset_explicit = parsed.get("filter_preset_explicit", False) or state.get("filter_preset_explicit", False)
@@ -783,6 +799,10 @@ def _handle_editor_llm(state, parsed, local_parsed):
         state["bgm_mood"] = bgm_mood
     if bgm_mood_explicit:
         state["bgm_mood_explicit"] = True
+    if bgm_volume:
+        state["bgm_volume"] = bgm_volume
+    if bgm_volume_explicit:
+        state["bgm_volume_explicit"] = True
     if filter_preset:
         state["filter_preset"] = filter_preset
     if filter_preset_explicit:

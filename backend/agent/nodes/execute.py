@@ -587,20 +587,26 @@ def _execute_editor_transition(state, video_path, output_dir, input_name, suffix
 def _execute_editor_bgm(state, video_path, output_dir, input_name, suffix, mode_text) -> VideoAgentState:
     """智能配乐模式"""
     bgm_mood = state.get("bgm_mood", "auto")
+    # 中文情绪名转英文 key（UI 传入中文时需要映射）
+    mood_map = {"自动": "auto", "欢快": "happy", "平静": "calm", "动感": "energetic", "悲伤": "sad", "史诗": "epic", "商务": "corporate"}
+    if bgm_mood in mood_map:
+        bgm_mood = mood_map[bgm_mood]
     bgm_volume = state.get("bgm_volume", 0.5)
+    print(f"[DEBUG BGM] bgm_volume from state: {bgm_volume}, state keys: {list(state.keys())}")
     output_path = str(output_dir / f"bgm_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
 
     from video.bgm import find_matching_bgm, add_bgm_to_video
+    from settings import MUSIC_LIBRARY_DIR
 
     # 查找匹配的音乐
-    bgm_info = find_matching_bgm(mood=bgm_mood)
+    bgm_info = find_matching_bgm(mood=bgm_mood, music_dir=MUSIC_LIBRARY_DIR)
     if not bgm_info:
         state["current_step"] = "confirm_complete"
         _append_message(state, "assistant", f"{mode_text}失败：未找到匹配的音乐文件。请在音乐库目录中添加音乐文件。")
         return state
 
     bgm_path = bgm_info["path"]
-    success = add_bgm_to_video(video_path, bgm_path, output_path, video_volume=0.3, bgm_volume=bgm_volume)
+    success = add_bgm_to_video(video_path, bgm_path, output_path, video_volume=0.7, bgm_volume=bgm_volume)
 
     state["current_step"] = "confirm_complete"
     mood_names = {"auto": "自动", "happy": "欢快", "calm": "平静", "energetic": "动感"}

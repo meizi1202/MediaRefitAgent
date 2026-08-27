@@ -50,3 +50,7 @@ FFMPEG_DIR = _get_str("FFMPEG_DIR", "C:/ffmpeg/ffmpeg-9.0-essentials_build/bin")
 
 # 音频码率（拼接场景使用）
 FFMPEG_AUDIO_BITRATE = _get_str("FFMPEG_AUDIO_BITRATE", "128k")
+
+# =================== 音乐库配置 ===================
+# BGM 音乐库目录
+MUSIC_LIBRARY_DIR = _get_str("MUSIC_LIBRARY_DIR", "F:/video/bgm")

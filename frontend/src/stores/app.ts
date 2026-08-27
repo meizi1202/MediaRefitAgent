@@ -334,6 +334,10 @@ export const useAppStore = defineStore('app', () => {
           const moodMap: Record<string, string> = { 'auto': '自动', 'happy': '欢快', 'calm': '平静', 'energetic': '动感' };
           parts.push(`音乐风格=${moodMap[selectedBGMMood.value] || selectedBGMMood.value}`);
         }
+        // 仅 bgm 模式包含 BGM 音量
+        if (selectedEditorMode.value === 'bgm' && selectedBGMVolume.value !== null) {
+          parts.push(`BGM音量=${(selectedBGMVolume.value / 100).toFixed(2)}`);
+        }
         // 仅 filter 模式包含滤镜预设
         if (selectedEditorMode.value === 'filter' && selectedFilterPreset.value && selectedFilterPreset.value !== 'none') {
           parts.push(`滤镜预设=${selectedFilterPreset.value}`);
