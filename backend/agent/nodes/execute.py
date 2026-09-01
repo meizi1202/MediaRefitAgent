@@ -657,14 +657,20 @@ def _execute_editor_analyze(state, video_path, mode_text) -> VideoAgentState:
 
 def _execute_editor_cover(state, video_path, output_dir, input_name, suffix, mode_text) -> VideoAgentState:
     """封面生成模式"""
-    output_path = str(output_dir / f"cover_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
-
     from video.video_analysis import CoverGenerator
-    result = CoverGenerator.extract_cover_frame(video_path, output_path)
+
+    # 根据封面模式确定提取数量：单张=1，多张候选=5
+    cover_mode = state.get("cover_mode", "single")
+    num_candidates = 1 if cover_mode == "single" else 5
+
+    # 提取封面
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_paths = CoverGenerator.extract_cover_frames(video_path, output_dir, input_name, timestamp, num_candidates=num_candidates)
 
     state["current_step"] = "confirm_complete"
-    if result:
-        _append_message(state, "assistant", f"{mode_text}完成！\n\n封面文件: {output_path}\n[PREVIEW:{output_path}]")
+    if output_paths:
+        preview_tags = ''.join([f"[PREVIEW:{p}]" for p in output_paths])
+        _append_message(state, "assistant", f"{mode_text}完成！\n\n封面文件: {', '.join([p.split('/')[-1] for p in output_paths])}\n{preview_tags}")
     else:
         _append_message(state, "assistant", f"{mode_text}失败，请检查视频格式是否支持。")
     return state

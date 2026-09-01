@@ -21,15 +21,16 @@
             v-html="formatContent(item.content)"
           ></div>
           <div class="message-time">{{ formatTime(group.timestamp) }}</div>
-          <!-- 视频预览 - 紧跟在助手消息下方 -->
-          <div v-if="group.role === 'assistant' && group.previewPath" class="video-preview">
-            <video
-              :src="getPreviewUrl(group.previewPath)"
-              controls
-              class="preview-video"
-            ></video>
-            <div class="preview-info">
-              <a :href="getPreviewUrl(group.previewPath)" target="_blank" class="download-link">⬇️ 下载</a>
+          <!-- 预览（视频或图片）- 紧跟在助手消息下方 -->
+          <div v-if="group.role === 'assistant' && group.previewPaths?.length" class="preview-list">
+            <div v-for="(path, idx) in group.previewPaths" :key="idx" class="preview-item">
+              <!-- 图片预览 -->
+              <img v-if="isImage(path)" :src="getPreviewUrl(path)" class="preview-image" />
+              <!-- 视频预览 -->
+              <video v-else :src="getPreviewUrl(path)" controls class="preview-video"></video>
+              <div class="preview-info">
+                <a :href="getPreviewUrl(path)" target="_blank" class="download-link">⬇️ 下载</a>
+              </div>
             </div>
           </div>
           <!-- 流式加载指示器 - 紧跟在助手消息下方 -->
@@ -72,6 +73,13 @@ function getPreviewUrl(path: string): string {
   return api.getDownloadUrl(filename);
 }
 
+// 判断是否为图片
+function isImage(path: string): boolean {
+  if (!path) return false;
+  const ext = path.split('.').pop()?.toLowerCase() || '';
+  return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext);
+}
+
 // 检查是否有正在流式传输的消息
 const hasStreamingMessage = computed(() =>
   messages.value.some(msg => (msg as any).streaming)
@@ -84,7 +92,7 @@ const groupedMessages = computed(() => {
     role: string;
     items: Array<{ content: string; streaming?: boolean }>;
     timestamp: string;
-    previewPath?: string;
+    previewPaths?: string[];
   }> = [];
 
   for (const msg of valid) {
@@ -100,9 +108,9 @@ const groupedMessages = computed(() => {
     } else {
       // 助手消息：合并到上一组
       const last = groups[groups.length - 1];
-      // 提取预览路径
-      const previewMatch = msg.content.match(/\[PREVIEW:([^\]]+)\]/);
-      const previewPath = previewMatch ? previewMatch[1] : undefined;
+      // 提取所有预览路径（支持多张封面）
+      const previewMatches = [...msg.content.matchAll(/\[PREVIEW:([^\]]+)\]/g)];
+      const previewPaths = previewMatches.map(m => m[1]);
 
       if (last && last.role === 'assistant') {
         // 如果上一条还在流式，替换内容；否则追加
@@ -111,16 +119,16 @@ const groupedMessages = computed(() => {
         } else {
           last.items.push({ content: msg.content, streaming });
         }
-        // 更新预览路径
-        if (previewPath) {
-          last.previewPath = previewPath;
+        // 追加预览路径
+        if (previewPaths.length > 0) {
+          last.previewPaths = [...(last.previewPaths || []), ...previewPaths];
         }
       } else {
         groups.push({
           role: msg.role,
           items: [{ content: msg.content, streaming }],
           timestamp: msg.timestamp,
-          previewPath,
+          previewPaths: previewPaths.length > 0 ? previewPaths : undefined,
         });
       }
     }
@@ -313,8 +321,13 @@ export default { name: 'ChatArea' };
   text-align: right;
 }
 /* 视频预览 */
-.video-preview {
+.preview-list {
   margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.preview-item {
   background: #2a2a2a;
   border-radius: 8px;
   overflow: hidden;
@@ -323,6 +336,12 @@ export default { name: 'ChatArea' };
 .preview-video {
   width: 100%;
   max-height: 180px;
+  display: block;
+}
+.preview-image {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
   display: block;
 }
 .preview-info {

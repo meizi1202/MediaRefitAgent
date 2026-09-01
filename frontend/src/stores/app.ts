@@ -362,6 +362,11 @@ export const useAppStore = defineStore('app', () => {
             parts.push(`配音文本=${textPreview}`);
           }
         }
+        // 仅 cover 模式包含封面模式
+        if (selectedEditorMode.value === 'cover') {
+          const coverMap: Record<string, string> = { 'single': '单张封面', 'candidates': '多张候选' };
+          parts.push(`封面模式=${coverMap[selectedCoverMode.value] || selectedCoverMode.value}`);
+        }
       }
     }
 

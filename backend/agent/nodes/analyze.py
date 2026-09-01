@@ -295,6 +295,18 @@ def _parse_ui_params(user_input: str) -> dict:
                 result["found"] = True
                 break
 
+    # 解析封面模式
+    cover_mode_match = re.search(r'封面模式\s*=\s*([^，,\]]+)', user_input)
+    if cover_mode_match:
+        cover_text = cover_mode_match.group(1).strip()
+        cover_map = {"单张封面": "single", "多张候选": "candidates"}
+        for name, mode in cover_map.items():
+            if name in cover_text:
+                result["cover_mode"] = mode
+                result["cover_mode_explicit"] = True
+                result["found"] = True
+                break
+
     # 解析字幕样式
     subtitle_style_match = re.search(r'字幕样式\s*=\s*([^，,\]]+)', user_input)
     if subtitle_style_match:
@@ -529,6 +541,11 @@ def _handle_editor_ui(state, ui_params):
     if ui_params.get("tts_text"):
         state["tts_text"] = ui_params.get("tts_text")
         state["tts_text_explicit"] = ui_params.get("tts_text_explicit", False)
+
+    # 解析封面模式
+    if ui_params.get("cover_mode"):
+        state["cover_mode"] = ui_params.get("cover_mode")
+        state["cover_mode_explicit"] = ui_params.get("cover_mode_explicit", False)
 
     mode_names = {
         "highlight": "精彩片段", "subtitle": "自动字幕", "transition": "添加转场",

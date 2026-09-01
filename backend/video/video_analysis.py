@@ -575,6 +575,70 @@ class CoverGenerator:
             print(f"Extract candidates error: {e}")
             return []
 
+    @staticmethod
+    def extract_cover_frames(
+        video_path: str,
+        output_dir: str,
+        input_name: str,
+        timestamp: str,
+        num_candidates: int = 5
+    ) -> list[str]:
+        """
+        提取多张封面帧（使用 subprocess 避免 ffmpeg-python 路径问题）
+
+        Args:
+            video_path: 视频文件路径
+            output_dir: 输出目录
+            input_name: 输入文件名（不含扩展名）
+            timestamp: 时间戳字符串
+            num_candidates: 候选数量
+
+        Returns:
+            封面路径列表
+        """
+        import subprocess
+        from settings import FFMPEG_PATH
+
+        try:
+            # 获取视频时长
+            probe_cmd = [FFMPEG_PATH.replace('ffmpeg.exe', 'ffprobe.exe'),
+                         '-v', 'error', '-show_entries', 'format=duration',
+                         '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
+            result = subprocess.run(probe_cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
+            if result.returncode != 0:
+                print(f"Get duration error: {result.stderr}")
+                return []
+            duration = float(result.stdout.strip())
+
+            os.makedirs(output_dir, exist_ok=True)
+            candidates = []
+
+            # 在视频不同位置采样
+            positions = [0.1, 0.25, 0.4, 0.6, 0.75, 0.9]
+            for i, pos in enumerate(positions[:num_candidates]):
+                ts = duration * pos
+                output_path = os.path.join(output_dir, f"cover_{input_name}_{timestamp}_{i+1}.jpg")
+
+                cmd = [
+                    FFMPEG_PATH,
+                    '-y',
+                    '-ss', str(ts),
+                    '-i', video_path,
+                    '-vframes', '1',
+                    '-q:v', '2',
+                    output_path
+                ]
+
+                r = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
+                if r.returncode == 0 and os.path.exists(output_path):
+                    candidates.append(output_path)
+
+            return candidates
+
+        except Exception as e:
+            print(f"Extract cover frames error: {e}")
+            return []
+
 
 class TitleGenerator:
     """片头片尾生成器"""
