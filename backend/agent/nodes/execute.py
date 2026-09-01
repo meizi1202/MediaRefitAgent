@@ -670,7 +670,7 @@ def _execute_editor_cover(state, video_path, output_dir, input_name, suffix, mod
     state["current_step"] = "confirm_complete"
     if output_paths:
         preview_tags = ''.join([f"[PREVIEW:{p}]" for p in output_paths])
-        _append_message(state, "assistant", f"{mode_text}完成！\n\n封面文件: {', '.join([p.split('/')[-1] for p in output_paths])}\n{preview_tags}")
+        _append_message(state, "assistant", f"{mode_text}完成！\n{preview_tags}")
     else:
         _append_message(state, "assistant", f"{mode_text}失败，请检查视频格式是否支持。")
     return state
