@@ -172,7 +172,7 @@ const coverMode = ref<string>(store.selectedCoverMode || 'single');
 const visible = computed(() => store.currentFeature === 'editor');
 
 const EDITOR_MODES = {
-  highlight: { name: '精彩片段', desc: '提取高光片段' },
+  highlight: { name: '固定裁剪', desc: '开头到目标时长' },
   subtitle: { name: '自动字幕', desc: '生成字幕' },
   transition: { name: '添加转场', desc: '添加转场效果' },
   bgm: { name: '智能配乐', desc: '匹配背景音乐' },

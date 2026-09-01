@@ -301,7 +301,7 @@ export const useAppStore = defineStore('app', () => {
       // 智能剪辑的参数（只包含当前模式相关的参数）
       if (currentFeature.value === 'editor') {
         const modeMap: Record<string, string> = {
-          'highlight': '精彩片段',
+          'highlight': '固定裁剪',
           'subtitle': '自动字幕',
           'transition': '添加转场',
           'bgm': '智能配乐',
