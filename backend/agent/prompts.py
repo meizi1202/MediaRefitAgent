@@ -29,11 +29,13 @@ TOOL_RECOGNITION_PROMPT = """
 - 修复、老视频、去噪 -> restore
 - 精彩片段、高光、字幕、配乐、转场、滤镜、封面、片头片尾、智能剪辑 -> editor
 - 缩编、精简、缩短、智能缩编、内容缩编 -> condense
+- 用户在提问、咨询、了解、推荐、建议时（如"用什么比例好"、"哪个平台适合"等） -> general_chat
 
-【严格规则】
-- 用户说"转竖屏"、"竖屏"、"9:16"、"填充黑边"等任何转换相关 -> 必须返回 convert
-- 即使输入很短，只要涉及视频方向/比例/策略 -> 返回 convert
-- 只返回一个词：convert/compress/info/trim/concat/restore/editor/condense/null"""
+【判断逻辑】
+- 如果用户想要执行某个操作（转换、压缩、剪辑等） -> 返回对应工具
+- 如果用户只是在提问、咨询、了解信息 -> 返回 general_chat
+- 如果不确定用户意图，优先返回 general_chat
+- 只返回一个词：convert/compress/info/trim/concat/restore/editor/condense/general_chat"""
 
 # ============ convert 工具 ============
 CONVERT_PARAM_PROMPT = """【任务】解析视频转换需求
@@ -243,3 +245,72 @@ TOOL_PROMPTS = {
 
 # ============ 通用响应模板 ============
 NULL_RESPONSE = "抱歉，我没有理解您的需求。您是想转换视频方向、压缩视频、修剪视频、缩编视频还是获取视频信息？"
+
+
+def get_platform_suggestion_prompt(platform: str) -> str:
+    """生成符合平台要求的建议文本"""
+    from agent.knowledge.platform_guide import PLATFORM_GUIDE
+    info = PLATFORM_GUIDE.get(platform, {})
+    if not info:
+        return ""
+    return f"（提示：{platform}推荐{info['ratio']}，时长{info['duration']}）"
+
+
+# ============ 通用对话 Prompt ============
+GENERAL_CHAT_PROMPT = """【任务】作为视频处理助手回答用户问题
+
+{conversation_history}
+用户输入：{user_input}
+
+---
+【当前视频信息】
+{video_info}
+
+【检测到的平台】
+{platform_info}
+
+---
+你是一个专业的视频处理助手，名为"视频助手"。请根据上述信息回答用户的问题。
+
+【你的能力范围】
+- 视频方向转换（竖屏、横屏、9:16、16:9等）
+- 视频压缩和优化
+- 视频修剪和裁剪
+- 视频拼接和合并
+- 智能缩编和精彩片段提取
+- 老视频修复（去噪、补帧等）
+- 视频平台发布建议（抖音、B站、快手、小红书等）
+- 视频编辑技巧和建议
+
+【平台发布建议规则】
+当检测到平台时，必须提供以下信息：
+1. 推荐比例（基于平台知识库）
+2. 推荐时长范围（基于平台知识库）
+3. 询问用户是否需要帮助转换视频
+
+【回答要求】
+- 回答要友好、专业、简洁
+- 如果检测到平台，必须提供具体的平台发布建议（比例、时长等）
+- 如果用户询问"推荐"或"建议"，结合平台信息给出具体建议
+- 如果用户询问视频处理问题，提供清晰的指导
+- 如果用户想执行某个操作但参数不完整，引导用户提供必要参数
+- 用中文回答
+
+【输出格式】
+{{"response":"助手回复"}}
+"""
+
+
+def get_general_chat_prompt(
+    user_input: str,
+    video_info: str = "",
+    platform_info: str = "",
+    history_context: str = ""
+) -> str:
+    """生成通用对话提示词"""
+    return GENERAL_CHAT_PROMPT.format(
+        conversation_history=history_context or "【无对话历史】",
+        user_input=user_input,
+        video_info=video_info or "暂无视频信息",
+        platform_info=platform_info or "未检测到特定平台",
+    )

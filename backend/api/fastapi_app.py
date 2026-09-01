@@ -1107,7 +1107,14 @@ async def agent_chat_stream(
                     # 逐个发送消息
                     for msg in messages:
                         print(f"[DEBUG] SSE sending: {msg[:50]}...")
-                        yield f"data: {json.dumps({'event': 'message', 'answer': msg, 'created_at': int(time.time())})}\n\n"
+                        # 识别进度消息并作为专门事件发送
+                        import re
+                        progress_match = re.match(r'\[PROGRESS:(\d+)\]', msg)
+                        if progress_match:
+                            progress = int(progress_match.group(1)) / 100.0
+                            yield f"data: {json.dumps({'event': 'progress', 'progress': progress, 'created_at': int(time.time())})}\n\n"
+                        else:
+                            yield f"data: {json.dumps({'event': 'message', 'answer': msg, 'created_at': int(time.time())})}\n\n"
                         await asyncio.sleep(0.1)  # 增加间隔，避免 Windows 套接字缓冲区溢出
 
                 # 检查 agent 是否结束

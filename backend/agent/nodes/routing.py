@@ -292,10 +292,43 @@ def _get_missing_params(feature: str, state: VideoAgentState) -> list[str]:
     """根据实际状态判断需要补全哪些参数"""
     if feature == "convert":
         missing = []
+        # 检查是否有平台信息可以使用
+        platform = state.get("platform")
+        platform_ratio = None
+        platform_orientation = None
+        if platform:
+            try:
+                from agent.knowledge.platform_guide import PLATFORM_GUIDE
+                platform_info = PLATFORM_GUIDE.get(platform, {})
+                if platform_info:
+                    ratio_str = platform_info.get("ratio", "")
+                    # 解析平台推荐比例
+                    if "9:16" in ratio_str or "3:4" in ratio_str:
+                        platform_orientation = "portrait"
+                        if "9:16" in ratio_str:
+                            platform_ratio = 9/16  # 0.5625
+                        elif "3:4" in ratio_str:
+                            platform_ratio = 3/4  # 0.75
+                    elif "16:9" in ratio_str:
+                        platform_orientation = "landscape"
+                        platform_ratio = 16/9
+            except ImportError:
+                pass
+
         if not state.get("orientation_explicit"):
-            missing.append("orientation")
+            # 如果有平台推荐的 orientation，使用它
+            if platform_orientation:
+                state["target_orientation"] = platform_orientation
+                state["orientation_explicit"] = True
+            else:
+                missing.append("orientation")
         if not state.get("ratio_explicit"):
-            missing.append("ratio")
+            # 如果有平台推荐的 ratio，使用它
+            if platform_ratio:
+                state["target_ratio"] = platform_ratio
+                state["ratio_explicit"] = True
+            else:
+                missing.append("ratio")
         if not state.get("strategy_explicit"):
             missing.append("strategy")
         return missing

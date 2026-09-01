@@ -37,6 +37,126 @@ def _build_video_info_text(video_info: dict) -> str:
     return f"\n\n当前视频信息：{video_info['message']}"
 
 
+def is_general_question(text: str) -> bool:
+    """判断用户输入是否像是一般性问题（而非明确的工具请求）"""
+    text_lower = text.lower()
+
+    # 问题标记词
+    question_patterns = [
+        r'[怎么如何]\\s*(做|处理|弄|操作)',
+        r'能不能',
+        r'可以不可以',
+        r'适不适合',
+        r'要不要',
+        r'有没有',
+        r'是不是',
+        r'为什么',
+        r'请问',
+        r'帮忙?[看下]',
+        r'帮我看看',
+        r'帮我处理',
+        r'帮我分析',
+        r'哪个[比例|策略|格式]',
+        r'什么[比例|策略|格式]',
+        r'[哪|什么]个[好|推荐|适合]',
+        r'有没有[推荐|建议]',
+        r'一般[用|是|用哪个]',
+    ]
+
+    for pattern in question_patterns:
+        if re.search(pattern, text_lower):
+            return True
+
+    # 通用疑问词
+    question_words = ['吗', '呢', '？', '?', '怎么', '如何', '为什么', '哪个', '什么']
+    if any(w in text for w in question_words):
+        # 但排除明确的工具请求（如"转竖屏"、"压缩"等）
+        tool_keywords = ['转换', '转竖屏', '转横屏', '压缩', '修剪', '裁剪', '拼接', '合并', '缩编', '修复']
+        if not any(kw in text for kw in tool_keywords):
+            return True
+
+    return False
+
+
+def handle_general_chat(
+    user_input: str,
+    llm: MinMaxLLM,
+    video_info: dict = None,
+    history: list = None,
+    platform: str = None
+) -> dict:
+    """处理通用对话（当没有匹配到具体工具时）"""
+    # 构建上下文
+    history_context = _build_history_context(history or [])
+    video_info_text = _build_video_info_text(video_info) if video_info else ""
+
+    # 构建平台信息
+    platform_info = ""
+    if platform:
+        try:
+            from agent.knowledge.platform_guide import format_platform_suggestion
+            suggestion = format_platform_suggestion(platform)
+            platform_info = f"{platform}：{suggestion}" if suggestion else platform
+        except ImportError:
+            platform_info = platform
+
+    # 构建提示词
+    prompt = prompts.get_general_chat_prompt(
+        user_input=user_input,
+        video_info=video_info_text,
+        platform_info=platform_info,
+        history_context=history_context,
+    )
+
+    # 调用 LLM
+    result = llm._generate([{"role": "user", "content": prompt}])
+    content = result.content or ""
+
+    # 提取 JSON 中的 response
+    # 尝试完整 JSON 解析
+    try:
+        # 先尝试找到完整的 JSON 对象
+        json_start = content.find('{"response":"')
+        if json_start != -1:
+            # 找到 JSON 开始位置，从这里尝试解析
+            json_candidate = content[json_start:]
+            # 找到 JSON 结束位置（最后一个 }）
+            json_end = json_candidate.rfind('"}')
+            if json_end != -1:
+                json_str = json_candidate[:json_end + 2]
+                parsed = json.loads(json_str)
+                response_text = parsed.get("response", "")
+                # 简单替换常见的转义字符
+                response_text = response_text.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"').replace("\\\\", "\\")
+                return {"response": response_text}
+    except (json.JSONDecodeError, KeyError):
+        pass
+
+    # 回退：简单正则提取
+    response_match = re.search(r'"response"\s*:\s*"(.*?)"(?:\}|$)', content, re.DOTALL)
+    if response_match:
+        response_text = response_match.group(1)
+        response_text = response_text.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"').replace("\\\\", "\\")
+        return {"response": response_text}
+
+    # 如果提取失败，尝试直接返回内容
+    if content:
+        # 清理可能的 markdown 格式
+        content = content.strip()
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+        # 简单替换常见的转义字符
+        content = content.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"').replace("\\\\", "\\")
+        return {"response": content}
+
+    return {"response": "抱歉，我现在无法回答这个问题。请尝试描述您的具体需求，比如想要转换视频方向、压缩视频、或者剪辑视频等。"}
+
+
 def _extract_json(content: str) -> dict:
     """从 LLM 输出中提取 JSON"""
     # 方法1：正则提取 JSON 对象
@@ -114,6 +234,14 @@ def parse_intent(user_input: str, llm: MinMaxLLM, video_info: dict = None, histo
     target_feature = tool_result.content.strip().lower() if tool_result.content else "null"
 
     # ===== 第二步：根据工具解析参数 =====
+    if target_feature == "general_chat":
+        # 返回特殊标记，让调用方知道这是通用对话
+        return {
+            "target_feature": "general_chat",
+            "response": "",
+            "all_params_provided": False,
+        }
+
     if target_feature not in prompts.TOOL_PROMPTS:
         return {
             "target_feature": None,
@@ -261,7 +389,7 @@ def get_video_info(file_path: str) -> dict:
             "codec": metadata.codec,
             "bitrate": metadata.bitrate,
             "size_mb": round(size_bytes / 1024 / 1024, 2),
-            "message": f"视频信息：\n- 分辨率：{metadata.width}× {metadata.height}\n- 时长：{metadata.duration:.1f} 秒\n- 文件大小：{size_bytes/1024/1024:.2f} MB\n- 帧率：{metadata.fps:.1f} fps\n- 码率：{metadata.bitrate/1000:.0f} kbps"
+            "message": f"视频信息：\n- 分辨率：{metadata.width}× {metadata.height}\n- 时长：{metadata.duration:.1f} 秒\n- 文件大小：{size_bytes/1024/1024:.2f} MB\n- 帧率：{metadata.fps:.1f} fps\n- 码率：{metadata.bitrate/1000:.0f} kbps" if metadata.bitrate < 1000000 else f"视频信息：\n- 分辨率：{metadata.width}× {metadata.height}\n- 时长：{metadata.duration:.1f} 秒\n- 文件大小：{size_bytes/1024/1024:.2f} MB\n- 帧率：{metadata.fps:.1f} fps\n- 码率：{metadata.bitrate/1000000:.2f} Mbps"
         }
     except Exception as e:
         return {"success": False, "message": f"获取视频信息失败：{str(e)}"}

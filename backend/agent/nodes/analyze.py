@@ -13,6 +13,7 @@ import os
 
 from agent.types import VideoAgentState, ConversationMessage
 from agent.streaming import send_stream_chunk, is_streaming_enabled
+from agent.knowledge.platform_guide import match_platform, format_platform_suggestion
 from langchain_core.messages import HumanMessage
 
 
@@ -146,6 +147,7 @@ class IntentParser:
         strategy, strategy_explicit = cls.parse_strategy(text)
         ratio, ratio_explicit = cls.parse_ratio(text)
         compression, compression_explicit = cls.parse_compression(text)
+        platform = match_platform(text)
         return {
             "orientation": orientation,
             "orientation_explicit": orientation_explicit,
@@ -155,6 +157,8 @@ class IntentParser:
             "ratio_explicit": ratio_explicit,
             "compression": compression,
             "compression_explicit": compression_explicit,
+            "platform": platform,
+            "platform_explicit": platform is not None,
         }
 
 
@@ -1027,6 +1031,54 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         "condense": lambda: _handle_condense_llm(state, parsed or {}, local_parsed),
     }
 
+    # 当 LLM 返回 general_chat 时，调用通用对话处理
+    if target_feature == "general_chat" and LLM_API_KEY:
+        platform_detected = local_parsed.get("platform")
+        try:
+            from agent.langchain_agent import MinMaxLLM, handle_general_chat
+            llm = MinMaxLLM(api_key=LLM_API_KEY)
+
+            video_info = None
+            if state.get("video_path"):
+                try:
+                    from agent.langchain_agent import get_video_info
+                    video_info = get_video_info(state["video_path"])
+                except Exception:
+                    pass
+
+            history = state.get("history", [])
+
+            general_result = handle_general_chat(
+                user_input=user_input,
+                llm=llm,
+                video_info=video_info,
+                history=history,
+                platform=platform_detected,
+            )
+
+            llm_response = general_result.get("response", "")
+            _append_message(state, "assistant", llm_response)
+
+            # 设置平台信息到 state
+            if platform_detected:
+                state["platform"] = platform_detected
+                state["platform_explicit"] = True
+
+            state["pending_question"] = "请问还有什么需要帮助的？"
+            state["current_step"] = None
+            return state
+
+        except Exception as e:
+            llm_response = f"处理您的问题时出现错误：{str(e)}"
+            _append_message(state, "assistant", llm_response)
+            state["pending_question"] = "请重新描述您的需求"
+            return state
+
+    # 如果 LLM 没有识别到工具
+    if target_feature is None:
+        llm_response = prompts.NULL_RESPONSE
+        target_feature = "convert"
+
     handler = feature_handlers.get(target_feature)
     if handler:
         result = handler()
@@ -1038,5 +1090,18 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             _setup_feature_state(state, target_feature, all_params, None, msg or llm_response)
     else:
         _setup_feature_state(state, target_feature, False, "请选择参数", llm_response)
+
+    # 平台识别：注入平台建议到 pending_question
+    detected_platform = match_platform(user_input)
+    if detected_platform and not state.get("platform"):
+        state["platform"] = detected_platform
+        state["platform_explicit"] = True
+        suggestion = format_platform_suggestion(detected_platform)
+        if suggestion:
+            current_msg = state.get("pending_question") or ""
+            if current_msg:
+                state["pending_question"] = f"{suggestion}。{current_msg}"
+            else:
+                state["pending_question"] = suggestion
 
     return state
