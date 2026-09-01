@@ -673,23 +673,55 @@ def _execute_editor_cover(state, video_path, output_dir, input_name, suffix, mod
 def _execute_editor_title_package(state, video_path, output_dir, input_name, suffix, mode_text) -> VideoAgentState:
     """片头片尾模式"""
     import tempfile
+    import subprocess
     from video.video_analysis import TitleGenerator
 
-    # 创建临时片头文件
-    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
-        opening_path = tmp.name
+    progress_callback = _make_progress_callback("execute_editor")
+
+    # 获取原视频分辨率
+    try:
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+             '-show_entries', 'stream=width,height', '-of',
+             'csv=p=0', video_path],
+            capture_output=True, text=True, check=True
+        )
+        w, h = result.stdout.strip().split(',')
+        width, height = int(w), int(h)
+        progress_callback(0.1, "获取视频分辨率完成")
+    except Exception as e:
+        state["current_step"] = "confirm_complete"
+        _append_message(state, "assistant", f"无法获取视频分辨率: {str(e)}")
+        return state
+
+    # 创建临时片头和片尾文件
+    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_opening:
+        opening_path = tmp_opening.name
+    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_ending:
+        ending_path = tmp_ending.name
 
     try:
         # 生成片头
-        opening_ok = TitleGenerator.create_opening(opening_path)
+        progress_callback(0.15, "正在生成片头...")
+        opening_ok = TitleGenerator.create_opening(opening_path, width=width, height=height)
         if not opening_ok:
             raise Exception("片头生成失败")
+        progress_callback(0.3, "片头生成完成")
 
-        # 将片头添加到原视频
+        # 生成片尾
+        progress_callback(0.4, "正在生成片尾...")
+        ending_ok = TitleGenerator.create_ending(ending_path, width=width, height=height)
+        if not ending_ok:
+            raise Exception("片尾生成失败")
+        progress_callback(0.55, "片尾生成完成")
+
+        # 合并片头+视频+片尾
         output_path = str(output_dir / f"titled_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
-        concat_ok = TitleGenerator.add_opening_to_video(video_path, output_path, opening_path)
+        progress_callback(0.65, "正在添加片头片尾...")
+        concat_ok = TitleGenerator.add_title_package_to_video(video_path, output_path, opening_path, ending_path)
         if not concat_ok:
-            raise Exception("片头添加失败")
+            raise Exception("片头片尾添加失败")
+        progress_callback(1.0, "片头片尾添加完成")
     except Exception as e:
         state["current_step"] = "confirm_complete"
         _append_message(state, "assistant", f"{mode_text}失败: {str(e)}")
@@ -699,6 +731,8 @@ def _execute_editor_title_package(state, video_path, output_dir, input_name, suf
         import os
         if os.path.exists(opening_path):
             os.remove(opening_path)
+        if os.path.exists(ending_path):
+            os.remove(ending_path)
 
     state["current_step"] = "confirm_complete"
     _append_message(state, "assistant", f"{mode_text}完成！\n\n输出文件: {output_path}\n[PREVIEW:{output_path}]")

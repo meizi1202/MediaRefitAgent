@@ -10,13 +10,14 @@ import json
 from pathlib import Path
 from typing import Optional, Callable, Literal
 
+# 跨平台 FFmpeg 配置（从 settings 导入）
+from settings import FFMPEG_PATH, FFPROBE_PATH, FFMPEG_DIR
+
 Orientation = Literal["portrait", "landscape", "square", "unknown"]
 
-# FFmpeg 配置
-FFMPEG_DIR = "C:/ffmpeg/ffmpeg-9.0-essentials_build/bin"
-FFMPEG_PATH = os.path.join(FFMPEG_DIR, "ffmpeg.exe")
-FFPROBE_PATH = os.path.join(FFMPEG_DIR, "ffprobe.exe")
-os.environ["PATH"] = FFMPEG_DIR + os.pathsep + os.environ.get("PATH", "")
+# 设置环境变量（如果指定了 FFMPEG_DIR）
+if FFMPEG_DIR:
+    os.environ["PATH"] = FFMPEG_DIR + os.pathsep + os.environ.get("PATH", "")
 os.environ["FFMPEG_BINARY"] = FFMPEG_PATH
 os.environ["FFPROBE_BINARY"] = FFPROBE_PATH
 

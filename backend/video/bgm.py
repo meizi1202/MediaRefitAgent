@@ -54,12 +54,10 @@ class MusicMatcher:
                     return p
         except Exception:
             pass
-        # 尝试常见音乐目录
+        # 尝试常见音乐目录（跨平台）
         possible_dirs = [
             Path.home() / "Music",
             Path.home() / "Music/BGM",
-            Path("F:/video/bgm"),
-            Path("F:/video/music"),
         ]
         for d in possible_dirs:
             if d.exists():

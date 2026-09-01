@@ -208,9 +208,9 @@ class TTSProcessor:
             if progress_callback:
                 progress_callback(0.2)
 
-            # 获取 FFmpeg 路径
-            ffmpeg_dir = os.getenv("FFMPEG_PATH", "")
-            ffmpeg_cmd = os.path.join(ffmpeg_dir, "ffmpeg.exe") if ffmpeg_dir and os.path.exists(ffmpeg_dir) else "ffmpeg"
+            # 获取 FFmpeg 命令（跨平台）
+            from settings import FFMPEG_PATH
+            ffmpeg_cmd = FFMPEG_PATH
 
             # 使用简单的方式：amix 混合音频
             # 先调整 TTS 音量，再与视频原音混合

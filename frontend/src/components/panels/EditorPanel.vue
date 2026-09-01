@@ -146,20 +146,6 @@
             >{{ label }}</button>
           </div>
         </div>
-
-        <!-- 目标平台（analyze 模式显示） -->
-        <div class="form-group" v-if="editorMode === 'analyze'">
-          <label>目标平台</label>
-          <div class="option-row wrap">
-            <button
-              v-for="(label, key) in PLATFORMS"
-              :key="key"
-              class="option-btn"
-              :class="{ active: platform === key }"
-              @click="platform = key"
-            >{{ label }}</button>
-          </div>
-        </div>
       </div>
     </div>
   </Transition>
@@ -182,7 +168,6 @@ const ttsVoice = ref<string>(store.selectedTTSVoice || 'zh-CN-XiaoxiaoNeural');
 const ttsText = ref<string>(store.selectedTTSText || '');
 const filterPreset = ref<string>(store.selectedFilterPreset || 'none');
 const coverMode = ref<string>(store.selectedCoverMode || 'single');
-const platform = ref<string>(store.selectedPlatform || 'douyin');
 
 const visible = computed(() => store.currentFeature === 'editor');
 
@@ -236,13 +221,6 @@ const COVER_MODES: Record<string, string> = {
   candidates: '多张候选',
 };
 
-const PLATFORMS: Record<string, string> = {
-  douyin: '抖音',
-  kuaishou: '快手',
-  bilibili: 'B站',
-  xiaohongshu: '小红书',
-};
-
 // 同步到 store
 watch(editorMode, (val) => store.setEditorMode(val));
 watch(editorDuration, (val) => { if (val !== null) store.setEditorDuration(val); });
@@ -254,7 +232,6 @@ watch(ttsVoice, (val) => store.setTTSVoice(val));
 watch(ttsText, (val) => store.setTTSText(val));
 watch(filterPreset, (val) => store.setFilterPreset(val));
 watch(coverMode, (val) => store.setCoverMode(val));
-watch(platform, (val) => store.setPlatform(val));
 
 function close() {
   store.setFeature('editor');

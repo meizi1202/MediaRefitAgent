@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, Literal
 
 from video.platforms import PLATFORM_SETTINGS
-from settings import FFMPEG_PRESET_ANALYSIS
+from settings import FFMPEG_PRESET_ANALYSIS, FFMPEG_PATH
 
 
 class VideoAnalyzer:
@@ -40,7 +40,8 @@ class VideoAnalyzer:
             api_key: MiniMax API Key，默认从环境变量读取
         """
         self.api_key = api_key or os.environ.get("MINIMAX_API_KEY", "")
-        self.api_base = "https://api.minimax.chat/v1"
+        self.api_base = os.environ.get("MINIMAX_API_BASE", "https://api.minimax.chat/v1")
+        self.vl_model = os.environ.get("MINIMAX_VL_MODEL", "MiniMax-M3")
 
     def extract_frames(self, video_path: str, num_frames: int = 8) -> list[str]:
         """
@@ -151,7 +152,7 @@ class VideoAnalyzer:
             # 构建请求
             # MiniMax VL 具体 API 格式需要参考官方文档，这里使用通用格式
             payload = {
-                "model": "MiniMax-VL-01",
+                "model": self.vl_model,
                 "messages": [
                     {
                         "role": "user",
@@ -622,6 +623,8 @@ class TitleGenerator:
         template: str = "default",
         duration: Optional[float] = None,
         text: Optional[str] = None,
+        width: int = 1920,
+        height: int = 1080,
         progress_callback=None
     ) -> bool:
         """
@@ -632,12 +635,14 @@ class TitleGenerator:
             template: 模板名称
             duration: 自定义时长
             text: 自定义文字
+            width: 视频宽度
+            height: 视频高度
             progress_callback: 进度回调
 
         Returns:
             是否成功
         """
-        import ffmpeg
+        import subprocess
 
         try:
             if progress_callback:
@@ -647,23 +652,34 @@ class TitleGenerator:
             dur = duration or tmpl["duration"]
             txt = text or tmpl["text"]
 
-            # 创建纯色/文字片头
-            if txt:
-                # 使用 FFmpeg drawtext 创建文字片头
-                stream = ffmpeg.input(f'color=c=black:s=1080x1920:d={dur}', f='lavfi')
-                stream = ffmpeg.filter(stream, 'drawtext',
-                                       text=txt,
-                                       fontfile='C:/Windows/Fonts/simhei.ttf',
-                                       fontsize=72,
-                                       fontcolor='white',
-                                       x='(w-text_w)/2',
-                                       y='(h-text_h)/2',
-                                       enable=f'between(t,0,{dur})')
-            else:
-                stream = ffmpeg.input(f'color=c=black:s=1080x1920:d={dur}', f='lavfi')
+            ffmpeg_cmd = FFMPEG_PATH
+            fontfile = "/c/Windows/Fonts/simhei.ttf"
 
-            output = ffmpeg.output(stream, output_path, vcodec='libx264', t=dur, an=None)
-            ffmpeg.run(output, overwrite_output=True, quiet=True)
+            if txt:
+                # MSYS2-style fontfile path and list args; include silent audio for concat compatibility
+                cmd = [
+                    ffmpeg_cmd, '-y',
+                    '-f', 'lavfi', '-i', f'color=c=black:s={width}x{height}:d={dur}',
+                    '-f', 'lavfi', '-i', f'anullsrc=channel_layout=stereo:sample_rate=48000',
+                    '-vf', f'drawtext=fontfile={fontfile}:text={txt}:fontsize=72:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2',
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-t', str(dur),
+                    '-c:a', 'aac', '-ar', '48000', '-ac', '2',
+                    output_path
+                ]
+            else:
+                cmd = [
+                    ffmpeg_cmd, '-y',
+                    '-f', 'lavfi', '-i', f'color=c=black:s={width}x{height}:d={dur}',
+                    '-f', 'lavfi', '-i', f'anullsrc=channel_layout=stereo:sample_rate=48000',
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-t', str(dur),
+                    '-c:a', 'aac', '-ar', '48000', '-ac', '2',
+                    output_path
+                ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+            if result.returncode != 0:
+                print(f"Create opening error: {result.stderr[-500:]}")
+                return False
 
             if progress_callback:
                 progress_callback(1.0)
@@ -680,6 +696,8 @@ class TitleGenerator:
         template: str = "default",
         duration: Optional[float] = None,
         text: Optional[str] = None,
+        width: int = 1920,
+        height: int = 1080,
         progress_callback=None
     ) -> bool:
         """
@@ -690,12 +708,14 @@ class TitleGenerator:
             template: 模板名称
             duration: 自定义时长
             text: 自定义文字
+            width: 视频宽度
+            height: 视频高度
             progress_callback: 进度回调
 
         Returns:
             是否成功
         """
-        import ffmpeg
+        import subprocess
 
         try:
             if progress_callback:
@@ -705,19 +725,33 @@ class TitleGenerator:
             dur = duration or tmpl["duration"]
             txt = text or tmpl["text"]
 
-            # 创建片尾
-            stream = ffmpeg.input(f'color=c=black:s=1080x1920:d={dur}', f='lavfi')
-            if txt:
-                stream = ffmpeg.filter(stream, 'drawtext',
-                                       text=txt,
-                                       fontfile='C:/Windows/Fonts/simhei.ttf',
-                                       fontsize=72,
-                                       fontcolor='white',
-                                       x='(w-text_w)/2',
-                                       y='(h-text_h)/2')
+            ffmpeg_cmd = FFMPEG_PATH
+            fontfile = "/c/Windows/Fonts/simhei.ttf"
 
-            output = ffmpeg.output(stream, output_path, vcodec='libx264', t=dur, an=None)
-            ffmpeg.run(output, overwrite_output=True, quiet=True)
+            if txt:
+                cmd = [
+                    ffmpeg_cmd, '-y',
+                    '-f', 'lavfi', '-i', f'color=c=black:s={width}x{height}:d={dur}',
+                    '-f', 'lavfi', '-i', f'anullsrc=channel_layout=stereo:sample_rate=48000',
+                    '-vf', f'drawtext=fontfile={fontfile}:text={txt}:fontsize=72:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2',
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-t', str(dur),
+                    '-c:a', 'aac', '-ar', '48000', '-ac', '2',
+                    output_path
+                ]
+            else:
+                cmd = [
+                    ffmpeg_cmd, '-y',
+                    '-f', 'lavfi', '-i', f'color=c=black:s={width}x{height}:d={dur}',
+                    '-f', 'lavfi', '-i', f'anullsrc=channel_layout=stereo:sample_rate=48000',
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-t', str(dur),
+                    '-c:a', 'aac', '-ar', '48000', '-ac', '2',
+                    output_path
+                ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+            if result.returncode != 0:
+                print(f"Create ending error: {result.stderr[-500:]}")
+                return False
 
             if progress_callback:
                 progress_callback(1.0)
@@ -732,8 +766,7 @@ class TitleGenerator:
     def add_opening_to_video(
         video_path: str,
         output_path: str,
-        opening_path: str,
-        progress_callback=None
+        opening_path: str
     ) -> bool:
         """
         将片头添加到视频
@@ -742,36 +775,93 @@ class TitleGenerator:
             video_path: 原始视频路径
             output_path: 输出路径
             opening_path: 片头视频路径
-            progress_callback: 进度回调
 
         Returns:
             是否成功
         """
-        import ffmpeg
+        import subprocess
+        from settings import FFMPEG_PATH
 
         try:
-            if progress_callback:
-                progress_callback(0.1)
+            # 使用 concat demuxer + 流复制，高效且保持音视频质量
+            ffmpeg_cmd = FFMPEG_PATH
+            concat_list = output_path + '.concat.txt'
+            with open(concat_list, 'w') as f:
+                f.write(f"file '{opening_path}'\n")
+                f.write(f"file '{video_path}'\n")
 
-            # 使用 concat 合并
-            stream = ffmpeg.concat(
-                ffmpeg.input(opening_path),
-                ffmpeg.input(video_path),
-                n=2,
-                v=1,
-                a=0
-            )
+            cmd = [
+                ffmpeg_cmd, '-y',
+                '-f', 'concat', '-safe', '0',
+                '-i', concat_list,
+                '-c', 'copy',
+                output_path
+            ]
 
-            output = ffmpeg.output(stream, output_path, vcodec='copy', acodec='copy')
-            ffmpeg.run(output, overwrite_output=True, quiet=True)
-
-            if progress_callback:
-                progress_callback(1.0)
+            result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
+            os.remove(concat_list)
+            if result.returncode != 0:
+                print(f"Add opening error: {result.stderr[-1000:]}")
+                return False
 
             return os.path.exists(output_path)
 
         except Exception as e:
             print(f"Add opening error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    @staticmethod
+    def add_title_package_to_video(
+        video_path: str,
+        output_path: str,
+        opening_path: str,
+        ending_path: str
+    ) -> bool:
+        """
+        将片头+视频+片尾合并
+
+        Args:
+            video_path: 原始视频路径
+            output_path: 输出路径
+            opening_path: 片头视频路径
+            ending_path: 片尾视频路径
+
+        Returns:
+            是否成功
+        """
+        import subprocess
+        from settings import FFMPEG_PATH
+
+        try:
+            ffmpeg_cmd = FFMPEG_PATH
+            concat_list = output_path + '.concat.txt'
+            with open(concat_list, 'w') as f:
+                f.write(f"file '{opening_path}'\n")
+                f.write(f"file '{video_path}'\n")
+                f.write(f"file '{ending_path}'\n")
+
+            cmd = [
+                ffmpeg_cmd, '-y',
+                '-f', 'concat', '-safe', '0',
+                '-i', concat_list,
+                '-c', 'copy',
+                output_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=180)
+            os.remove(concat_list)
+            if result.returncode != 0:
+                print(f"Add title package error: {result.stderr[-1000:]}")
+                return False
+
+            return os.path.exists(output_path)
+
+        except Exception as e:
+            print(f"Add title package error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     @staticmethod
