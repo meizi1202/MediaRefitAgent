@@ -14,6 +14,20 @@ class ConversationMessage(TypedDict):
     timestamp: str
 
 
+class OperationStep(TypedDict):
+    """操作链中的单个步骤"""
+    step_id: str
+    feature: str
+    step_name: str
+    params: dict
+    status: str  # pending / running / completed / failed
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    duration_seconds: Optional[float]
+    result: Optional[dict]
+    error: Optional[str]
+
+
 class VideoAgentState(TypedDict):
     """Agent 状态"""
     # 用户输入
@@ -96,3 +110,19 @@ class VideoAgentState(TypedDict):
     # ========== 老视频修复参数 ==========
     restoration_preset: Optional[str]  # basic/film/enhanced
     restoration_preset_explicit: bool
+
+    # ========== 剪映对接参数 ==========
+    jianying_mode: Optional[str]  # subtitle/transition/both
+    jianying_subtitle_style: Optional[str]  # default/minimal
+    jianying_transition_type: Optional[str]  # 星光/叠化/模糊...
+    jianying_transition_duration: Optional[int]  # 转场时长（毫秒）
+    jianying_text_color: Optional[str]  # #FFFFFF
+    jianying_font_size: Optional[int]  # 40
+    jianying_font: Optional[str]  # 思源黑体
+    jianying_draft_url: Optional[str]
+
+    # ========== 操作链相关 ==========
+    operation_chain: Optional[list[OperationStep]]  # 操作队列
+    current_step_index: Optional[int]  # 当前执行到的步骤索引
+    chain_status: Optional[str]  # idle / running / completed / failed
+    operation_mode: Optional[str]  # "single" / "chain"

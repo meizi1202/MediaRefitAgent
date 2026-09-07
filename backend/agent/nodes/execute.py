@@ -34,9 +34,7 @@ def _append_message(state: VideoAgentState, role: str, content: str):
 def _make_progress_callback(label: str = ""):
     """生成统一的进度回调函数"""
     def progress_callback(progress: float, message: str = ""):
-        prefix = f"[DEBUG {label}] " if label else "[DEBUG] "
         msg = f"[PROGRESS:{int(progress * 100)}]"
-        print(f"{prefix}{msg} {message}")
         send_stream_message(msg)
     return progress_callback
 
@@ -83,6 +81,9 @@ def execute_transform(state: VideoAgentState) -> VideoAgentState:
         state["current_step"] = "confirm_complete"
 
         if result.success:
+            # 更新 temp_video_path 供后续操作使用
+            state["temp_video_path"] = result.output_path
+
             # 转换英文值为中文
             orientation_map = {"portrait": "竖屏", "landscape": "横屏", "square": "正方形"}
             strategy_map = {"pad": "填充黑边", "crop": "中心裁剪", "smart_crop": "智能裁剪", "stretch": "拉伸填充", "mirror_scroll": "镜像滚动", "pan_scroll": "平移运镜"}
@@ -138,6 +139,9 @@ def execute_compress(state: VideoAgentState) -> VideoAgentState:
         original_size = os.path.getsize(video_path)
         compressed_size = os.path.getsize(output_path)
 
+        # 更新 temp_video_path 供后续操作使用
+        state["temp_video_path"] = output_path
+
         state["current_step"] = "confirm_complete"
         _append_message(state, "assistant", f"压缩完成！\n\n原始大小: {original_size/1024/1024:.2f}MB\n压缩后: {compressed_size/1024/1024:.2f}MB\n压缩比: {compressed_size/original_size:.1%}\n[PREVIEW:{output_path}]")
 
@@ -152,6 +156,7 @@ def execute_compress(state: VideoAgentState) -> VideoAgentState:
 def execute_trim(state: VideoAgentState) -> VideoAgentState:
     """执行视频修剪"""
     video_path = state.get("temp_video_path") or state.get("video_path")
+    print(f"[DEBUG execute_trim] video_path={video_path}, temp_video_path={state.get('temp_video_path')}")
 
     if not video_path:
         state["error"] = "视频文件不存在"
@@ -185,6 +190,9 @@ def execute_trim(state: VideoAgentState) -> VideoAgentState:
 
         trimmed_size = os.path.getsize(output_path)
         trimmed_duration = end_time - start_time
+
+        # 更新 temp_video_path 供后续操作使用
+        state["temp_video_path"] = output_path
 
         state["current_step"] = "confirm_complete"
         _append_message(state, "assistant", f"视频修剪完成！\n\n原始时长: {original_duration:.1f}秒\n原始大小: {original_size/1024/1024:.2f}MB\n修剪后时长: {trimmed_duration:.1f}秒\n修剪后大小: {trimmed_size/1024/1024:.2f}MB\n开始时间: {start_time}秒\n结束时间: {end_time}秒\n[PREVIEW:{output_path}]")
@@ -297,6 +305,186 @@ def execute_info(state: VideoAgentState) -> VideoAgentState:
         state["error"] = str(e)
         state["current_step"] = "confirm_complete"
         _append_message(state, "assistant", f"获取视频信息异常: {str(e)}")
+
+    return state
+
+
+def execute_jianying(state: VideoAgentState) -> VideoAgentState:
+    """执行剪映对接 - 添加字幕/转场场景"""
+    print(f"[DEBUG execute_jianying] === ENTER ===")
+
+    try:
+        from jianying.client import JianyingClient
+        from jianying.models import CreateDraftRequest, VideoInfo, CaptionInfo, WordInfo, AddVideosRequest, AddCaptionsRequest, SaveDraftRequest
+        from video.summary import VideoSummarizer as Transcriber
+        import datetime
+        import shutil
+        from pathlib import Path
+
+        # 获取视频文件列表
+        video_files = state.get("video_files", [])
+        single_video_path = state.get("temp_video_path") or state.get("video_path")
+        if not video_files and single_video_path:
+            video_files = [single_video_path]
+        if not video_files:
+            raise ValueError("视频文件不存在")
+
+        print(f"[DEBUG execute_jianying] video_files count: {len(video_files)}")
+
+        # Step 0: 将所有视频复制到草稿目录
+        jianying_client = JianyingClient()
+        draft_video_dir = jianying_client.draft_dir / "_videos"
+        draft_video_dir.mkdir(parents=True, exist_ok=True)
+        draft_video_paths = []
+        for i, video_path in enumerate(video_files):
+            video_suffix = Path(video_path).suffix
+            timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+            draft_video_path = draft_video_dir / f"{timestamp}_{i}{video_suffix}"
+            shutil.copy2(video_path, draft_video_path)
+            draft_video_paths.append(str(draft_video_path))
+        print(f"[DEBUG execute_jianying] videos copied: {draft_video_paths}")
+
+        # 获取模式
+        jianying_mode = state.get("jianying_mode", "subtitle")
+        print(f"[DEBUG execute_jianying] mode: {jianying_mode}")
+        print(f"[DEBUG execute_jianying] state keys: {[k for k in state.keys() if 'jianying' in k or 'transition' in k]}")
+        print(f"[DEBUG execute_jianying] state values: {[(k, state[k]) for k in state.keys() if 'jianying' in k or 'transition' in k]}")
+
+        # 字幕参数
+        text_color = state.get("jianying_text_color", "#FFFFFF")
+        font_size = state.get("jianying_font_size", 10)
+        font = state.get("jianying_font", "思源黑体")
+
+        # 转场参数
+        transition_type = state.get("jianying_transition_type", "")
+        transition_duration = state.get("jianying_transition_duration", 500)
+
+        _append_message(state, "assistant", "开始处理：获取视频信息...")
+        from video.processor import get_video_metadata
+
+        # 使用第一个视频的分辨率作为草稿分辨率
+        primary_video_path = draft_video_paths[0]
+        metadata = get_video_metadata(primary_video_path)
+        width = metadata.width
+        height = metadata.height
+        print(f"[DEBUG execute_jianying] video info: {width}x{height}, duration={metadata.duration}")
+
+        # Step 1: 创建剪映草稿
+        _append_message(state, "assistant", "正在创建剪映草稿...")
+        client = JianyingClient()
+        create_request = CreateDraftRequest(width=width, height=height)
+        create_response = client.create_draft(create_request)
+        draft_url = create_response.draft_url
+        print(f"[DEBUG execute_jianying] draft created: {draft_url}")
+
+        # Step 2: 添加视频到草稿（按顺序排列，时间轴不重叠）
+        _append_message(state, "assistant", "正在添加视频到草稿...")
+        print(f"[DEBUG execute_jianying] transition_type={transition_type}, transition_duration={transition_duration}, video_count={len(draft_video_paths)}")
+        video_info_list = []
+        current_start_us = 0
+        for i, draft_video_path in enumerate(draft_video_paths):
+            video_meta = get_video_metadata(draft_video_path)
+            video_duration_us = int(video_meta.duration * 1_000_000)
+            # 最后一个视频不加转场
+            has_transition = transition_type and i < len(draft_video_paths) - 1
+            video_info = VideoInfo(
+                video_url=draft_video_path,
+                start=current_start_us,
+                end=current_start_us + video_duration_us,
+                transition=transition_type if has_transition else None,
+                transition_duration=transition_duration * 1000 if has_transition else None,
+            )
+            print(f"[DEBUG execute_jianying] video[{i}] has_transition={has_transition}, transition={transition_type if has_transition else None}")
+            video_info_list.append(video_info)
+            current_start_us += video_duration_us
+        add_video_request = AddVideosRequest(
+            draft_url=draft_url,
+            videos=video_info_list,
+        )
+        add_video_response = client.add_videos(add_video_request)
+        print(f"[DEBUG execute_jianying] videos added: {add_video_response}")
+
+        caption_count = 0
+
+        # Step 3: 添加字幕（仅字幕模式或两者模式）
+        if jianying_mode in ("subtitle", "both"):
+            _append_message(state, "assistant", "正在进行语音识别...")
+            transcriber = Transcriber(llm_client=None)
+            all_caption_infos = []
+            # 对每个视频分别做语音识别，时间轴累加偏移
+            current_time_offset_us = 0
+            for i, draft_video_path in enumerate(draft_video_paths):
+                print(f"[DEBUG execute_jianying] transcribing video[{i}]: {draft_video_path}")
+                whisper_result = transcriber.transcribe_video(draft_video_path)
+                if not whisper_result:
+                    print(f"[DEBUG execute_jianying] video[{i}] whisper failed, skipping")
+                    # 累加时间偏移以便下一视频时间轴正确
+                    video_meta = get_video_metadata(draft_video_path)
+                    current_time_offset_us += int(video_meta.duration * 1_000_000)
+                    continue
+
+                segments = whisper_result.get("segments", [])
+                print(f"[DEBUG execute_jianying] video[{i}] whisper found {len(segments)} segments, offset={current_time_offset_us}")
+
+                for seg in segments:
+                    start_us = int(seg["start"] * 1_000_000) + current_time_offset_us
+                    end_us = int(seg["end"] * 1_000_000) + current_time_offset_us
+                    words = None
+                    if "words" in seg and seg["words"]:
+                        words = [WordInfo(word=w["word"], start=w["start"] + current_time_offset_us / 1_000_000, end=w["end"] + current_time_offset_us / 1_000_000) for w in seg["words"]]
+                    all_caption_infos.append(CaptionInfo(
+                        text=seg["text"],
+                        start=start_us,
+                        end=end_us,
+                        words=words,
+                    ))
+
+                video_meta = get_video_metadata(draft_video_path)
+                current_time_offset_us += int(video_meta.duration * 1_000_000)
+
+            print(f"[DEBUG execute_jianying] total caption segments: {len(all_caption_infos)}")
+            _append_message(state, "assistant", f"正在添加字幕（共 {len(all_caption_infos)} 条）...")
+
+            add_caption_request = AddCaptionsRequest(
+                draft_url=draft_url,
+                captions=all_caption_infos,
+                text_color=text_color,
+                font_size=font_size,
+                font=font,
+                char_level_highlight=False,
+            )
+            add_caption_response = client.add_captions(add_caption_request)
+            print(f"[DEBUG execute_jianying] captions added: {add_caption_response}")
+            caption_count = len(all_caption_infos)
+
+        # Step 4: 保存草稿
+        _append_message(state, "assistant", "正在保存草稿...")
+        save_request = SaveDraftRequest(draft_url=draft_url)
+        client.save_draft(save_request)
+
+        # 保存结果到 state
+        state["jianying_draft_url"] = draft_url
+        state["caption_count"] = caption_count
+
+        # 构建响应文本
+        mode_desc = {"subtitle": "字幕", "transition": "转场", "both": "字幕+转场"}.get(jianying_mode, "字幕")
+        response_text = f"""剪映草稿创建成功！
+
+📐 分辨率：{width} × {height}
+🎬 {mode_desc}已添加
+🔗 草稿链接：{draft_url}
+
+请在剪映客户端中打开上述链接进行编辑。"""
+
+        _append_message(state, "assistant", response_text)
+        state["current_step"] = "confirm_complete"
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[DEBUG execute_jianying] error: {error_msg}")
+        state["error"] = error_msg
+        state["current_step"] = "confirm_complete"
+        _append_message(state, "assistant", f"剪映对接异常: {error_msg}")
 
     return state
 
@@ -812,3 +1000,217 @@ def confirm_complete(state: VideoAgentState) -> VideoAgentState:
     """确认完成"""
     # pending_question 由 handle_user_response 清除，不要在这里清除
     return state
+
+
+def execute_chain_step(state: VideoAgentState) -> VideoAgentState:
+    """执行操作链中的单个步骤（线性串联）"""
+    from datetime import datetime
+    from agent.streaming import send_chain_step_start, send_chain_step_complete
+
+    chain = state.get("operation_chain", [])
+    current_idx = state.get("current_step_index", 0)
+
+    if current_idx >= len(chain):
+        state["current_step"] = "handle_chain_complete"
+        return state
+
+    current_step = chain[current_idx]
+    current_step["status"] = "running"
+    current_step["started_at"] = datetime.now().isoformat()
+
+    # 获取输入视频路径
+    if current_idx == 0:
+        input_path = state.get("temp_video_path") or state.get("video_path")
+    else:
+        prev_step = chain[current_idx - 1]
+        input_path = prev_step.get("result", {}).get("output_path") if prev_step.get("result") else None
+
+    if not input_path:
+        current_step["status"] = "failed"
+        current_step["error"] = "输入视频不存在"
+        state["chain_status"] = "failed"
+        state["current_step"] = "handle_chain_complete"
+        return state
+
+    # 发送步骤开始事件
+    send_chain_step_start(current_idx + 1, len(chain), current_step["step_name"])
+
+    # 调用对应执行器
+    feature = current_step["feature"]
+    params = current_step["params"]
+
+    # 根据 feature 类型调用对应的执行器
+    try:
+        result = _execute_feature_for_chain(feature, input_path, params, state)
+        current_step["result"] = result
+        current_step["status"] = "completed" if result.get("success") else "failed"
+        current_step["completed_at"] = datetime.now().isoformat()
+        current_step["duration_seconds"] = (
+            datetime.fromisoformat(current_step["completed_at"]) -
+            datetime.fromisoformat(current_step["started_at"])
+        ).total_seconds()
+
+        # 发送步骤完成事件
+        send_chain_step_complete(
+            current_idx + 1, len(chain), current_step["step_name"],
+            current_step["duration_seconds"],
+            result  # 传递步骤执行结果
+        )
+
+        if result.get("success"):
+            output_path = result.get("output_path")
+            state["temp_video_path"] = output_path
+            state["current_step_index"] = current_idx + 1
+        else:
+            error_msg = result.get("error", "未知错误")
+            current_step["error"] = error_msg
+            state["error"] = error_msg
+            state["chain_status"] = "failed"
+            # 推进索引避免无限循环
+            state["current_step_index"] = current_idx + 1
+
+    except Exception as e:
+        current_step["status"] = "failed"
+        current_step["error"] = str(e)
+        current_step["completed_at"] = datetime.now().isoformat()
+        current_step["duration_seconds"] = (
+            datetime.fromisoformat(current_step["completed_at"]) -
+            datetime.fromisoformat(current_step["started_at"])
+        ).total_seconds()
+        state["error"] = str(e)
+        state["chain_status"] = "failed"
+        # 推进索引避免无限循环
+        state["current_step_index"] = current_idx + 1
+        _append_message(state, "assistant", f"第 {current_idx + 1} 步 [{current_step['step_name']}] 异常：{str(e)}")
+
+    state["current_step"] = "chain_router"
+    return state
+
+
+def _execute_feature_for_chain(feature: str, input_path: str, params: dict, state: VideoAgentState) -> dict:
+    """为操作链执行单个功能，返回结果字典"""
+    from pathlib import Path
+    from datetime import datetime
+
+    output_dir = Path("F:/video")
+    output_dir.mkdir(exist_ok=True)
+    input_name = Path(input_path).stem
+    suffix = Path(input_path).suffix
+
+    def make_progress_callback(label: str):
+        def callback(progress: float, message: str = ""):
+            msg = f"[PROGRESS:{int(progress * 100)}]"
+            send_stream_message(msg)
+        return callback
+
+    try:
+        if feature == "trim":
+            from video.processor import trim_video
+            start_time = params.get("start_time", 0)
+            end_time = params.get("end_time", 30)
+            output_path = str(output_dir / f"chain_trim_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+            result = trim_video(input_path, output_path, start_time, end_time, progress_callback=make_progress_callback("chain_trim"))
+            return result
+
+        elif feature == "convert":
+            from video.transformer import transform, TransformRequest
+            target_orientation = params.get("target_orientation", "portrait")
+            strategy = params.get("strategy", "pad")
+            target_ratio = params.get("target_ratio", 9/16)
+            output_path = str(output_dir / f"chain_convert_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+            request = TransformRequest(
+                input_path=input_path,
+                output_path=output_path,
+                target_orientation=target_orientation,
+                strategy=strategy,
+                target_ratio=target_ratio,
+            )
+            result = transform(request, progress_callback=make_progress_callback("chain_convert"))
+            return_dict = {"success": result.success, "output_path": result.output_path, "error": result.error}
+            if result.metadata:
+                return_dict["metadata"] = {
+                    "width": result.metadata.width,
+                    "height": result.metadata.height,
+                    "orientation": result.target_orientation,
+                    "strategy": result.strategy_used,
+                }
+            return return_dict
+
+        elif feature == "compress":
+            from video.processor import compress_video
+            compression_level = params.get("compression_level", "medium")
+            output_path = str(output_dir / f"chain_compress_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+            result = compress_video(input_path, output_path, compression_level, progress_callback=make_progress_callback("chain_compress"))
+            return result
+
+        elif feature == "editor":
+            return _execute_editor_for_chain(input_path, output_dir, input_name, suffix, params, state)
+
+        elif feature == "restore":
+            # restore 功能暂时不可用
+            return {"success": False, "error": "视频修复功能暂不可用"}
+
+        elif feature == "info":
+            from video.processor import get_video_metadata
+            metadata = get_video_metadata(input_path)
+            return {
+                "success": True,
+                "output_path": input_path,
+                "metadata": {
+                    "width": metadata.width,
+                    "height": metadata.height,
+                    "duration": metadata.duration,
+                    "fps": metadata.fps,
+                }
+            }
+
+        else:
+            return {"success": False, "error": f"不支持的操作类型: {feature}"}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _execute_editor_for_chain(input_path: str, output_dir: Path, input_name: str, suffix: str, params: dict, state: VideoAgentState) -> dict:
+    """为操作链执行编辑器功能"""
+    from video.processor import get_video_metadata
+
+    editor_mode = params.get("editor_mode", "bgm")
+    progress_callback = _make_progress_callback("chain_editor")
+
+    try:
+        if editor_mode == "bgm":
+            from video.bgm import find_matching_bgm, add_bgm_to_video
+            bgm_mood = params.get("bgm_mood", "auto")
+            bgm_volume = params.get("bgm_volume", 0.5)
+            output_path = str(output_dir / f"chain_bgm_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+            # 查找匹配的音乐
+            bgm_info = find_matching_bgm(mood=bgm_mood)
+            if not bgm_info:
+                return {"success": False, "error": "未找到匹配的音乐文件"}
+            bgm_path = bgm_info["path"]
+            success = add_bgm_to_video(input_path, bgm_path, output_path, video_volume=0.7, bgm_volume=bgm_volume, progress_callback=progress_callback)
+            return {
+                "success": success,
+                "output_path": output_path,
+                "bgm_name": bgm_info.get("name"),
+                "mood": bgm_mood,
+            }
+
+        elif editor_mode == "cover":
+            from video.processor import generate_cover_images
+            output_path = str(output_dir / f"chain_cover_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}")
+            result = generate_cover_images(input_path, output_path, progress_callback=progress_callback)
+            return {"success": result.get("success", False), "output_path": result.get("output_path")}
+
+        elif editor_mode == "subtitle":
+            from video.processor import generate_subtitle_from_video
+            output_path = str(output_dir / f"chain_subtitle_{input_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.srt")
+            result = generate_subtitle_from_video(input_path, output_path, progress_callback=progress_callback)
+            return {"success": result.get("success", False), "output_path": result.get("output_path")}
+
+        else:
+            return {"success": False, "error": f"不支持的编辑器模式: {editor_mode}"}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}

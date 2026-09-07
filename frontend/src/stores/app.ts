@@ -21,7 +21,13 @@ export const useAppStore = defineStore('app', () => {
   const selectedEditorMode = ref<string>('highlight');
   const selectedEditorDuration = ref<number | null>(null);
   const selectedSubtitleStyle = ref<string>('default');
+  const selectedSubtitleColor = ref<string>('#70a19c');
+  const selectedSubtitleFontName = ref<string>('新青年体');
+  const selectedSubtitleFontSize = ref<number>(10);
+  const selectedSubtitleAlignment = ref<string>('center');
   const selectedTransitionType = ref<string>('fade');
+  const selectedTransitionDuration = ref<number>(500);
+  const selectedJianyingMode = ref<'subtitle' | 'transition' | 'both'>('subtitle');
   const selectedBGMMood = ref<string>('auto');
   const selectedBGMVolume = ref<number>(50);
   const selectedTTSVoice = ref<string>('zh-CN-XiaoxiaoNeural');
@@ -33,6 +39,31 @@ export const useAppStore = defineStore('app', () => {
   const selectedFiles = ref<File[]>([]);
   const isLoading = ref(false);
   const transformProgress = ref<number | null>(null);  // 0-100，null 表示无进度
+
+  // 操作链状态
+  interface OperationStep {
+    step_id: string;
+    feature: string;
+    step_name: string;
+    params: Record<string, any>;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    started_at?: string;
+    completed_at?: string;
+    duration_seconds?: number;
+    result?: Record<string, any>;
+    error?: string;
+  }
+  const operationChain = ref<OperationStep[]>([]);
+  const chainSessionId = ref<string | null>(null);  // 思维链所属的会话 ID
+  const currentStepIndex = ref<number>(0);
+  const chainStatus = ref<'idle' | 'running' | 'completed' | 'failed'>('idle');
+  const chainResult = ref<{
+    total_steps: number;
+    completed_steps: number;
+    total_duration_seconds: number;
+    failed_step: number | null;
+  } | null>(null);
+  const chainStepProgress = ref<number | null>(null);
 
   // 计算属性
   const currentSession = computed(() =>
@@ -115,8 +146,30 @@ export const useAppStore = defineStore('app', () => {
     selectedSubtitleStyle.value = style;
   }
 
+  function setSubtitleParams(params: {
+    style?: string;
+    color?: string;
+    fontName?: string;
+    fontSize?: number;
+    alignment?: string;
+  }) {
+    if (params.style !== undefined) selectedSubtitleStyle.value = params.style;
+    if (params.color !== undefined) selectedSubtitleColor.value = params.color;
+    if (params.fontName !== undefined) selectedSubtitleFontName.value = params.fontName;
+    if (params.fontSize !== undefined) selectedSubtitleFontSize.value = params.fontSize;
+    if (params.alignment !== undefined) selectedSubtitleAlignment.value = params.alignment;
+  }
+
   function setTransitionType(type: string) {
     selectedTransitionType.value = type;
+  }
+
+  function setTransitionDuration(duration: number) {
+    selectedTransitionDuration.value = duration;
+  }
+
+  function setJianyingMode(mode: 'subtitle' | 'transition' | 'both') {
+    selectedJianyingMode.value = mode;
   }
 
   function setBGMMood(mood: string) {
@@ -186,6 +239,7 @@ export const useAppStore = defineStore('app', () => {
 
   // 流式消息支持 - 直接修改对象触发响应式
   function updateStreamingMessage(sessionId: string, messageId: string, content: string) {
+    console.log('[DEBUG Store] updateStreamingMessage:', sessionId, messageId, 'content includes PREVIEW:', content.includes('[PREVIEW:'));
     const session = sessions.value.find(s => s.session_id === sessionId);
     if (session) {
       const index = session.messages.findIndex((m: Message) => m.id === messageId);
@@ -223,6 +277,7 @@ export const useAppStore = defineStore('app', () => {
         'restore': '老视频修复',
         'editor': '智能剪辑',
         'info': '视频信息获取',
+        'jianying': '剪映对接',
       };
       const featureLabel = featureMap[currentFeature.value];
       if (featureLabel) {
@@ -368,6 +423,30 @@ export const useAppStore = defineStore('app', () => {
           parts.push(`封面模式=${coverMap[selectedCoverMode.value] || selectedCoverMode.value}`);
         }
       }
+
+      // 剪映对接的参数
+      if (currentFeature.value === 'jianying') {
+        if (selectedJianyingMode.value) {
+          const modeMap: Record<string, string> = { 'subtitle': '添加字幕', 'transition': '添加转场', 'both': '字幕+转场' };
+          parts.push(`剪映模式=${modeMap[selectedJianyingMode.value] || selectedJianyingMode.value}`);
+        }
+        if (selectedSubtitleFontName.value) {
+          parts.push(`字体名称=${selectedSubtitleFontName.value}`);
+        }
+        if (selectedSubtitleFontSize.value) {
+          parts.push(`字号=${selectedSubtitleFontSize.value}`);
+        }
+        if (selectedSubtitleColor.value) {
+          parts.push(`字幕颜色=${selectedSubtitleColor.value}`);
+        }
+        // 仅在非字幕模式下发送转场参数
+        if (selectedJianyingMode.value !== 'subtitle' && selectedTransitionType.value) {
+          parts.push(`转场类型=${selectedTransitionType.value}`);
+        }
+        if (selectedJianyingMode.value !== 'subtitle' && selectedTransitionDuration.value) {
+          parts.push(`转场时长=${selectedTransitionDuration.value}毫秒`);
+        }
+      }
     }
 
     if (parts.length === 0) {
@@ -375,6 +454,100 @@ export const useAppStore = defineStore('app', () => {
     }
 
     return `[用户已选择参数：${parts.join('，')}]`;
+  }
+
+  // 操作链管理
+  function setOperationChain(chain: OperationStep[]) {
+    operationChain.value = chain;
+    chainStatus.value = chain.length > 0 ? 'running' : 'idle';
+    currentStepIndex.value = 0;
+  }
+
+  function updateChainStep(stepIndex: number, updates: Partial<OperationStep>) {
+    if (stepIndex >= 0 && stepIndex < operationChain.value.length) {
+      operationChain.value[stepIndex] = { ...operationChain.value[stepIndex], ...updates };
+    }
+  }
+
+  // 从 SSE 事件更新操作链状态
+  function updateChainStepFromSSE(data: {
+    event: 'start' | 'complete' | 'failed';
+    step: number;
+    total: number;
+    step_name: string;
+    duration_seconds?: number;
+    error?: string;
+    result?: Record<string, any>;
+  }) {
+    console.log('[DEBUG Store] updateChainStepFromSSE called:', data);
+    const stepIndex = data.step - 1;
+
+    if (data.event === 'start') {
+      // 初始化操作链（如果还没初始化）
+      if (operationChain.value.length === 0 && data.total > 0) {
+        console.log('[DEBUG Store] Initializing operationChain with', data.total, 'steps');
+        operationChain.value = Array.from({ length: data.total }, (_, i) => ({
+          step_id: `step_${i + 1}`,
+          feature: '',
+          step_name: '',
+          params: {},
+          status: 'pending' as const,
+        }));
+      }
+      // 更新当前步骤状态
+      if (operationChain.value[stepIndex]) {
+        operationChain.value[stepIndex].step_name = data.step_name;
+        operationChain.value[stepIndex].status = 'running';
+        console.log('[DEBUG Store] Step', stepIndex, 'set to running:', data.step_name);
+      }
+      chainStatus.value = 'running';
+    } else if (data.event === 'complete') {
+      if (operationChain.value[stepIndex]) {
+        operationChain.value[stepIndex].status = 'completed';
+        operationChain.value[stepIndex].duration_seconds = data.duration_seconds;
+        operationChain.value[stepIndex].result = data.result;
+        console.log('[DEBUG Store] Step', stepIndex, 'set to completed, duration:', data.duration_seconds, 'result:', data.result);
+      }
+    } else if (data.event === 'failed') {
+      if (operationChain.value[stepIndex]) {
+        operationChain.value[stepIndex].status = 'failed';
+        operationChain.value[stepIndex].error = data.error;
+      }
+      chainStatus.value = 'failed';
+    }
+    console.log('[DEBUG Store] operationChain now:', JSON.stringify(operationChain.value));
+  }
+
+  function initOperationChain(data: { total: number; steps: Array<{ step_id: string; feature: string; step_name: string; status: string }> }) {
+    operationChain.value = data.steps.map(s => ({
+      step_id: s.step_id,
+      feature: s.feature,
+      step_name: s.step_name,
+      params: {},
+      status: 'pending' as const,
+    }));
+    chainSessionId.value = currentSessionId.value;
+    chainStatus.value = 'running';
+    currentStepIndex.value = 0;
+    chainStepProgress.value = null;
+    console.log('[DEBUG Store] initOperationChain:', JSON.stringify(operationChain.value));
+  }
+
+  function clearOperationChain() {
+    operationChain.value = [];
+    chainSessionId.value = null;
+    currentStepIndex.value = 0;
+    chainStatus.value = 'idle';
+    chainResult.value = null;
+    chainStepProgress.value = null;
+  }
+
+  function setChainResult(result: typeof chainResult.value) {
+    chainResult.value = result;
+  }
+
+  function setChainStepProgress(progress: number | null) {
+    chainStepProgress.value = progress;
   }
 
   return {
@@ -394,7 +567,13 @@ export const useAppStore = defineStore('app', () => {
     selectedEditorMode,
     selectedEditorDuration,
     selectedSubtitleStyle,
+    selectedSubtitleColor,
+    selectedSubtitleFontName,
+    selectedSubtitleFontSize,
+    selectedSubtitleAlignment,
     selectedTransitionType,
+    selectedTransitionDuration,
+    selectedJianyingMode,
     selectedBGMMood,
     selectedBGMVolume,
     selectedTTSVoice,
@@ -425,7 +604,10 @@ export const useAppStore = defineStore('app', () => {
     setEditorMode,
     setEditorDuration,
     setSubtitleStyle,
+    setSubtitleParams,
     setTransitionType,
+    setTransitionDuration,
+    setJianyingMode,
     setBGMMood,
     setBGMVolume,
     setTTSVoice,
@@ -443,5 +625,19 @@ export const useAppStore = defineStore('app', () => {
     formatSelectedParams,
     updateStreamingMessage,
     finishStreamingMessage,
+    // 操作链
+    operationChain,
+    currentStepIndex,
+    chainStatus,
+    chainResult,
+    chainStepProgress,
+    chainSessionId,
+    initOperationChain,
+    setOperationChain,
+    updateChainStep,
+    updateChainStepFromSSE,
+    clearOperationChain,
+    setChainResult,
+    setChainStepProgress,
   };
 });

@@ -72,6 +72,7 @@ FEATURE_TO_EXECUTE = {
     "restore": "execute_restore",
     "editor": "execute_editor",
     "info": "execute_info",
+    "jianying": "execute_jianying",
 }
 
 
@@ -512,14 +513,15 @@ def handle_user_response(state: VideoAgentState) -> VideoAgentState:
     return state
 
 
-def should_proceed(state: VideoAgentState) -> Literal["analyze_intent", "execute_transform", "execute_compress", "execute_concat", "execute_trim", "execute_condense", "execute_restore", "execute_info", "execute_editor", "handle_user_response", "waiting_for_user", "confirm_complete"]:
+def should_proceed(state: VideoAgentState) -> Literal["analyze_intent", "execute_transform", "execute_compress", "execute_concat", "execute_trim", "execute_condense", "execute_restore", "execute_info", "execute_editor", "execute_jianying", "handle_user_response", "waiting_for_user", "confirm_complete"]:
     """判断下一步"""
     current_step = state.get("current_step")
     pending_question = state.get("pending_question")
     all_params = state.get("all_params_provided", False)
     feature = state.get("current_feature")
+    jianying_mode = state.get("jianying_mode")
 
-    print(f"[DEBUG should_proceed] current_step={current_step}, pending_question={pending_question}, all_params={all_params}, feature={feature}")
+    print(f"[DEBUG should_proceed] current_step={current_step}, pending_question={pending_question}, all_params={all_params}, feature={feature}, jianying_mode={jianying_mode}")
 
     # 如果 current_step 是 waiting_for_user，路由到 handle_user_response 处理用户回答
     if current_step == "waiting_for_user":
@@ -527,7 +529,7 @@ def should_proceed(state: VideoAgentState) -> Literal["analyze_intent", "execute
         return "handle_user_response"
 
     # 如果正在执行中，直接继续执行
-    if current_step in ("execute_transform", "execute_compress", "execute_concat", "execute_trim", "execute_condense", "execute_restore", "execute_info", "execute_editor"):
+    if current_step in ("execute_transform", "execute_compress", "execute_concat", "execute_trim", "execute_condense", "execute_restore", "execute_info", "execute_editor", "execute_jianying", "execute_chain_step"):
         print(f"[DEBUG should_proceed] -> executing node, return {current_step}")
         return current_step
 
@@ -541,6 +543,10 @@ def should_proceed(state: VideoAgentState) -> Literal["analyze_intent", "execute
         if pending_question:
             print(f"[DEBUG should_proceed] -> waiting_for_user (pending_question exists)")
             return "waiting_for_user"
+        # 操作链模式：跳转到 execute_chain_step
+        if state.get("operation_mode") == "chain":
+            print(f"[DEBUG should_proceed] -> execute_chain_step (operation_mode=chain)")
+            return "execute_chain_step"
         # 参数完整时执行对应功能
         if feature == "compress" and all_params:
             print(f"[DEBUG should_proceed] -> execute_compress (all_params)")
@@ -560,6 +566,12 @@ def should_proceed(state: VideoAgentState) -> Literal["analyze_intent", "execute
         if feature == "editor" and all_params:
             print(f"[DEBUG should_proceed] -> execute_editor (all_params)")
             return "execute_editor"
+        if feature == "jianying" and all_params:
+            print(f"[DEBUG should_proceed] -> execute_jianying (all_params)")
+            return "execute_jianying"
+        if feature == "info" and all_params:
+            print(f"[DEBUG should_proceed] -> execute_info (all_params)")
+            return "execute_info"
         print(f"[DEBUG should_proceed] -> analyze_intent, return analyze_intent")
         return "analyze_intent"
 
@@ -572,4 +584,35 @@ def should_proceed(state: VideoAgentState) -> Literal["analyze_intent", "execute
     if pending_question:
         print(f"[DEBUG should_proceed] -> waiting_for_user (pending_question exists, current_step=None)")
         return "waiting_for_user"
+
+    # 默认返回 analyze_intent
+    return "analyze_intent"
+
+
+def chain_router(state: VideoAgentState) -> str:
+    """判断操作链是否继续执行
+
+    Returns:
+        "execute_chain_step" - 继续执行下一步
+        "handle_chain_complete" - 操作链完成
+    """
+    chain = state.get("operation_chain", [])
+    current_idx = state.get("current_step_index", 0)
+    chain_status = state.get("chain_status")
+
+    print(f"[DEBUG chain_router] current_idx={current_idx}, chain_length={len(chain)}, chain_status={chain_status}")
+
+    # 操作链失败，直接完成
+    if chain_status == "failed":
+        print(f"[DEBUG chain_router] -> handle_chain_complete (chain_status=failed)")
+        return "handle_chain_complete"
+
+    # 还有未执行的步骤
+    if current_idx < len(chain):
+        print(f"[DEBUG chain_router] -> execute_chain_step (continue)")
+        return "execute_chain_step"
+
+    # 所有步骤执行完成
+    print(f"[DEBUG chain_router] -> handle_chain_complete (all steps done)")
+    return "handle_chain_complete"
 

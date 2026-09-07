@@ -12,8 +12,9 @@ from typing import Optional
 import os
 
 from agent.types import VideoAgentState, ConversationMessage
-from agent.streaming import send_stream_chunk, is_streaming_enabled
+from agent.streaming import send_stream_chunk, send_stream_message, is_streaming_enabled
 from agent.knowledge.platform_guide import match_platform, format_platform_suggestion
+from agent import prompts
 from langchain_core.messages import HumanMessage
 
 
@@ -26,7 +27,12 @@ def _append_message(state: VideoAgentState, role: str, content: str):
     )
     state["messages"].append(msg)
     if is_streaming_enabled():
-        send_stream_chunk(content)
+        # 操作链模式或包含特殊标签的消息使用 send_stream_message 保持顺序不分块
+        operation_mode = state.get("operation_mode")
+        if operation_mode == "chain" or "[PREVIEW:" in content or "[SUGGESTION:" in content:
+            send_stream_message(content)
+        else:
+            send_stream_chunk(content)
 
 
 # 功能到执行步骤的映射
@@ -39,6 +45,7 @@ FEATURE_TO_STEP = {
     "restore": "execute_restore",
     "editor": "execute_editor",
     "info": "execute_info",
+    "jianying": "execute_jianying",
 }
 
 
@@ -54,6 +61,7 @@ def _setup_feature_state(state: VideoAgentState, feature: str, all_params_provid
 
     所有功能最终都调用此函数，确保统一的行为。
     """
+    print(f"[DEBUG _setup_feature_state] feature={feature}, all_params={all_params_provided}, pending_question={pending_question}")
     state["current_feature"] = feature
     state["all_params_provided"] = all_params_provided
     state["pending_question"] = pending_question
@@ -177,7 +185,7 @@ def _parse_ui_params(user_input: str) -> dict:
         feature_map = {
             "横竖屏转换": "convert", "视频压缩": "compress", "视频修剪": "trim",
             "视频拼接": "concat", "智能缩编": "condense", "老视频修复": "restore",
-            "智能剪辑": "editor", "视频信息获取": "info",
+            "智能剪辑": "editor", "视频信息获取": "info", "剪映对接": "jianying",
         }
         for name, feat in feature_map.items():
             if name in feature_text:
@@ -334,6 +342,59 @@ def _parse_ui_params(user_input: str) -> dict:
                 result["transition_type_explicit"] = True
                 result["found"] = True
                 break
+
+    # 解析剪映模式
+    jianying_mode_match = re.search(r'剪映模式\s*=\s*([^，,\]]+)', user_input)
+    if jianying_mode_match:
+        mode_text = jianying_mode_match.group(1).strip()
+        mode_map = {"添加字幕": "subtitle", "添加转场": "transition", "字幕+转场": "both"}
+        for name, mode in mode_map.items():
+            if name in mode_text:
+                result["jianying_mode"] = mode
+                result["jianying_mode_explicit"] = True
+                break
+
+    # 解析字幕颜色
+    subtitle_color_match = re.search(r'字幕颜色\s*=\s*([^，,\]]+)', user_input)
+    if subtitle_color_match:
+        result["subtitle_color"] = subtitle_color_match.group(1).strip()
+        result["subtitle_color_explicit"] = True
+
+    # 解析字幕字号
+    subtitle_font_size_match = re.search(r'字号\s*=\s*(\d+)', user_input)
+    if subtitle_font_size_match:
+        result["subtitle_font_size"] = int(subtitle_font_size_match.group(1))
+        result["subtitle_font_size_explicit"] = True
+
+    # 解析字体名称
+    subtitle_font_name_match = re.search(r'字体名称\s*=\s*([^，,\]]+)', user_input)
+    if subtitle_font_name_match:
+        result["subtitle_font_name"] = subtitle_font_name_match.group(1).strip()
+        result["subtitle_font_name_explicit"] = True
+
+    # 解析转场时长
+    transition_duration_match = re.search(r'转场时长\s*=\s*(\d+)毫秒', user_input)
+    if transition_duration_match:
+        result["transition_duration"] = int(transition_duration_match.group(1))
+        result["transition_duration_explicit"] = True
+
+    # 解析转场类型
+    transition_type_match = re.search(r'转场类型\s*=\s*([^，,\]]+)', user_input)
+    if transition_type_match:
+        result["transition_type"] = transition_type_match.group(1).strip()
+        result["transition_type_explicit"] = True
+
+    # 如果有 jianying 相关参数，设置 found 标志
+    jianying_params = [
+        "jianying_mode", "jianying_mode_explicit",
+        "subtitle_color", "subtitle_color_explicit",
+        "subtitle_font_size", "subtitle_font_size_explicit",
+        "subtitle_font_name", "subtitle_font_name_explicit",
+        "transition_duration", "transition_duration_explicit",
+        "transition_type", "transition_type_explicit",
+    ]
+    if any(p in result for p in jianying_params):
+        result["found"] = True
 
     # 解析音乐风格
     bgm_mood_match = re.search(r'音乐风格\s*=\s*([^，,\]]+)', user_input)
@@ -558,6 +619,46 @@ def _handle_editor_ui(state, ui_params):
     }
     mode_text = mode_names.get(editor_mode, "智能剪辑")
     return f"好的，使用{mode_text}模式进行智能剪辑。", True
+
+
+def _handle_jianying_ui(state, ui_params):
+    """处理 jianying - UI 参数（剪映对接：字幕+转场）"""
+    print(f"[DEBUG _handle_jianying_ui] ui_params={ui_params}")
+    # 解析剪映模式
+    jianying_mode = ui_params.get("jianying_mode")
+    if jianying_mode:
+        state["jianying_mode"] = jianying_mode
+        print(f"[DEBUG _handle_jianying_ui] jianying_mode set to {jianying_mode}")
+
+    # 字幕参数
+    subtitle_style = ui_params.get("subtitle_style")
+    if subtitle_style:
+        state["jianying_subtitle_style"] = subtitle_style
+
+    subtitle_color = ui_params.get("subtitle_color")
+    if subtitle_color:
+        state["jianying_text_color"] = subtitle_color
+
+    subtitle_font_size = ui_params.get("subtitle_font_size")
+    if subtitle_font_size:
+        state["jianying_font_size"] = subtitle_font_size
+
+    subtitle_font_name = ui_params.get("subtitle_font_name")
+    if subtitle_font_name:
+        state["jianying_font"] = subtitle_font_name
+
+    # 转场参数
+    transition_type = ui_params.get("transition_type")
+    if transition_type:
+        state["jianying_transition_type"] = transition_type
+        print(f"[DEBUG _handle_jianying_ui] jianying_transition_type set to {transition_type}")
+
+    transition_duration = ui_params.get("transition_duration")
+    if transition_duration:
+        state["jianying_transition_duration"] = transition_duration
+        print(f"[DEBUG _handle_jianying_ui] jianying_transition_duration set to {transition_duration}")
+
+    return f"好的，正在创建剪映草稿...", True
 
 
 def _handle_convert_llm(state, parsed, local_parsed):
@@ -929,7 +1030,30 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
     user_input = state.get("new_user_input") or state.get("combined_input") or state["user_input"]
     video_files = state.get("video_files") or []
 
-    print(f"[DEBUG analyze_intent] user_input: {user_input[:100]}, video_files count: {len(video_files)}")
+    print(f"[DEBUG analyze_intent] user_input: {user_input[:100]}, video_files count: {len(video_files)}, temp_video_path={state.get('temp_video_path')}, video_path={state.get('video_path')}")
+
+    # 始终尝试解析操作链，由 LLM 判断是否是多步操作
+    from agent.langchain_agent import parse_operation_chain
+    from agent.streaming import send_chain_init
+    video_path = state.get("temp_video_path") or state.get("video_path")
+    try:
+        chain = parse_operation_chain(user_input, video_path)
+        if chain and len(chain) > 1:
+            # 多步骤操作链，转到 execute_chain_step 处理
+            print(f"[DEBUG analyze_intent] Multi-step chain detected ({len(chain)} steps), routing to analyze_chain")
+            state["operation_mode"] = "chain"
+            state["operation_chain"] = chain
+            state["current_step_index"] = 0
+            state["chain_status"] = "running"
+            # 发送操作链初始化事件，包含所有步骤信息
+            send_chain_init(chain)
+            chain_names = [s["step_name"] for s in chain]
+            _append_message(state, "assistant", f"已识别操作链，包含 {len(chain)} 个步骤：\n" + "\n".join(f"{i+1}. {name}" for i, name in enumerate(chain_names)))
+            state["current_step"] = "execute_chain_step"
+            return state
+    except Exception as e:
+        print(f"[DEBUG analyze_intent] Chain parsing failed: {e}, continuing with single operation")
+    # 解析失败或单步，继续单操作逻辑
 
     # 优先解析UI参数格式
     ui_params = _parse_ui_params(user_input)
@@ -946,6 +1070,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             "condense": _handle_condense_ui,
             "restore": _handle_restore_ui,
             "editor": _handle_editor_ui,
+            "jianying": _handle_jianying_ui,
         }
         handler = handlers.get(feature)
         if handler:
@@ -1029,6 +1154,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         "restore": lambda: (_handle_restore_llm(state, parsed or {})),
         "editor": lambda: (_handle_editor_llm(state, parsed or {}, local_parsed)),
         "condense": lambda: _handle_condense_llm(state, parsed or {}, local_parsed),
+        "jianying": lambda: (None, True, None),  # jianying 不需要参数，直接执行
     }
 
     # 当 LLM 返回 general_chat 时，调用通用对话处理
@@ -1080,6 +1206,7 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
         target_feature = "convert"
 
     handler = feature_handlers.get(target_feature)
+    print(f"[DEBUG analyze_intent] target_feature={repr(target_feature)}, handler={'found' if handler else 'NOT FOUND'}, available_keys={list(feature_handlers.keys())}, handler_type={type(handler)}")
     if handler:
         result = handler()
         if len(result) == 3:
@@ -1104,4 +1231,55 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             else:
                 state["pending_question"] = suggestion
 
+    return state
+
+
+def analyze_chain(state: VideoAgentState) -> VideoAgentState:
+    """解析操作链入口
+
+    判断用户输入是单操作还是多步骤操作链，
+    设置相应的 operation_mode 和状态。
+    """
+    user_input = state.get("new_user_input") or state.get("combined_input") or state["user_input"]
+    video_path = state.get("temp_video_path") or state.get("video_path")
+
+    print(f"[DEBUG analyze_chain] user_input: {user_input[:100]}")
+
+    # 调用 parse_operation_chain 解析
+    from agent.langchain_agent import parse_operation_chain
+
+    try:
+        chain = parse_operation_chain(user_input, video_path)
+    except Exception as e:
+        print(f"[DEBUG analyze_chain] parse_operation_chain failed: {e}")
+        chain = []
+
+    if not chain:
+        # 解析失败，降级到单操作模式
+        print(f"[DEBUG analyze_chain] No chain parsed, falling back to single operation")
+        state["operation_mode"] = "single"
+        state["operation_chain"] = []
+        state["current_step"] = "analyze_intent"
+        return state
+
+    if len(chain) == 1:
+        # 单操作：复用现有 analyze_intent 逻辑
+        print(f"[DEBUG analyze_chain] Single operation detected, falling back to analyze_intent")
+        state["operation_mode"] = "single"
+        state["operation_chain"] = []
+        state["current_step"] = "analyze_intent"
+        return state
+
+    # 多步骤操作链
+    state["operation_mode"] = "chain"
+    state["operation_chain"] = chain
+    state["current_step_index"] = 0
+    state["chain_status"] = "running"
+
+    # 发送初始消息
+    chain_names = [s["step_name"] for s in chain]
+    _append_message(state, "assistant", f"已识别操作链，包含 {len(chain)} 个步骤：\n" + "\n".join(f"{i+1}. {name}" for i, name in enumerate(chain_names)))
+
+    # 设置下一步为 execute_chain_step，由条件边路由
+    state["current_step"] = "execute_chain_step"
     return state
