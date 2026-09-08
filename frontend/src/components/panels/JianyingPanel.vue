@@ -47,7 +47,7 @@
                 @click="setSubtitleStyle(key)"
               >
                 <span class="style-name">{{ item.name }}</span>
-                <span class="style-font">{{ item.font }} / {{ item.size }}px</span>
+                <span class="style-font">{{ item.font }}</span>
               </button>
             </div>
           </div>
@@ -132,7 +132,7 @@ const subtitleColor = ref<string>('#70a19c');
 const fontSize = ref<number>(10);
 
 const SUBTITLE_STYLES = {
-  default: { name: '默认样式', font: '新青年体', size: 10, color: '#70a19c' },
+  default: { name: '系统', font: '', size: 10, color: '#FFFFFF' },
   xin_qing_nian: { name: '新青年体', font: '新青年体', size: 10, color: '#70a19c' },
   si_yuan: { name: '思源黑体', font: '思源黑体', size: 10, color: '#FFFFFF' },
 };
@@ -156,6 +156,11 @@ function switchMode(newMode: JianyingMode) {
     store.setTransitionType('');
     store.setTransitionDuration(0);
   }
+  syncToStore();
+}
+
+function setSubtitleStyle(key: string) {
+  subtitleStyle.value = key;
   syncToStore();
 }
 

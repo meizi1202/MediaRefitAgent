@@ -1,0 +1,59 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# Docs
+*.md
+!requirements.txt
+
+# Node
+node_modules
+
+# Environment
+.env
+.env.*
+.venv
+venv
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test & Dev
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data (volume mounts)
+data/
+
+# Large model files (mount externally)
+*.pt
+*.pth
+*.onnx
+
+# Frontend build (will be copied during build)
+frontend/node_modules
+frontend/dist
+frontend/.nuxt
+frontend/.output

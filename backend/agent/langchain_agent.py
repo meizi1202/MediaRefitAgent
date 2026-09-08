@@ -372,6 +372,72 @@ def _build_response(target_feature: str, parsed: dict, all_params_provided: bool
     return {**base_fields, **fields}
 
 
+# ============ 操作链解析 ============
+
+FEATURE_TO_STEP_NAME = {
+    "trim": "视频修剪",
+    "convert": "横竖屏转换",
+    "compress": "视频压缩",
+    "concat": "视频拼接",
+    "condense": "智能缩编",
+    "restore": "老视频修复",
+    "editor": "智能剪辑",
+    "editor/bgm": "智能配乐",
+    "editor/subtitle": "自动字幕",
+    "editor/transition": "添加转场",
+    "editor/cover": "封面生成",
+    "editor/title-package": "片头片尾",
+    "info": "获取视频信息",
+}
+
+
+def parse_operation_chain(user_input: str, video_path: str = None) -> list:
+    """从用户输入解析操作链"""
+    import uuid
+    from datetime import datetime
+
+    prompt = f"""你是一个视频处理操作链解析器。用户输入可能包含多个操作步骤，请解析为结构化的操作链。
+
+用户输入：{user_input}
+
+支持的操作类型：
+- trim: 视频修剪（需要 start_time, end_time）
+- convert: 横竖屏转换（需要 target_orientation: portrait/landscape, strategy: pad/crop/smart_crop）
+- compress: 视频压缩（需要 compression_level: low/medium/high）
+- editor/bgm: 智能配乐（需要 bgm_mood: happy/sad/energetic/calm/epic/corporate）
+
+请按顺序输出所有操作步骤，使用 JSON 数组格式。
+"""
+    try:
+        llm = MinMaxLLM()
+        result = llm._generate([{"role": "user", "content": prompt}])
+        content = result.content or "[]"
+        import re
+        json_match = re.search(r'\[[\s\S]*\]', content)
+        if json_match:
+            chain_data = json.loads(json_match.group())
+        else:
+            chain_data = []
+        chain = []
+        for i, item in enumerate(chain_data):
+            step_id = item.get("step_id") or f"step_{i+1}"
+            feature = item.get("feature", "")
+            params = item.get("params", {})
+            step_name = FEATURE_TO_STEP_NAME.get(feature, feature)
+            chain.append({
+                "step_id": step_id,
+                "feature": feature,
+                "step_name": step_name,
+                "params": params,
+                "status": "pending",
+            })
+        if chain:
+            return chain
+    except Exception as e:
+        print(f"[DEBUG parse_operation_chain] LLM parsing failed: {e}")
+    return []
+
+
 # ============ 辅助函数 ============
 
 def get_video_info(file_path: str) -> dict:

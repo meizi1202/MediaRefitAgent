@@ -2918,6 +2918,108 @@ async def api_restore_stream(
     )
 
 
+# ============ 剪映对接 API ============
+
+from jianying.client import JianyingClient
+from jianying.models import (
+    CreateDraftRequest, CreateDraftResponse,
+    AddVideosRequest, AddVideosResponse,
+    AddCaptionsRequest, AddCaptionsResponse,
+    SaveDraftRequest, SaveDraftResponse,
+    GetDraftResponse,
+)
+
+
+@app.post("/api/jianying/create_draft", response_model=CreateDraftResponse)
+async def api_create_draft(width: int = Form(default=1920), height: int = Form(default=1080)):
+    """创建剪映草稿"""
+    client = JianyingClient()
+    request = CreateDraftRequest(width=width, height=height)
+    return client.create_draft(request)
+
+
+@app.post("/api/jianying/add_videos", response_model=AddVideosResponse)
+async def api_add_videos(draft_url: str = Form(...), videos_json: str = Form(...)):
+    """添加视频到草稿（支持转场）
+
+    videos_json: JSON 字符串，包含视频列表
+    示例：[{"video_url": "file:///F:/video/test.mp4", "start": 0, "end": 5000000, "transition": "dissolve", "transition_duration": 500000}]
+    """
+    import json
+    from jianying.models import VideoInfo
+
+    try:
+        videos_data = json.loads(videos_json)
+        videos = [VideoInfo(**v) for v in videos_data]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid videos_json: {e}")
+
+    client = JianyingClient()
+    request = AddVideosRequest(draft_url=draft_url, videos=videos)
+    return client.add_videos(request)
+
+
+@app.post("/api/jianying/add_captions", response_model=AddCaptionsResponse)
+async def api_add_captions(
+    draft_url: str = Form(...),
+    captions_json: str = Form(...),
+    text_color: str = Form(default="#FFFFFF"),
+    font_size: int = Form(default=10),
+    font: str = Form(default="思源黑体"),
+):
+    """添加字幕到草稿
+
+    captions_json: JSON 字符串，包含字幕列表
+    示例：[{"text": "字幕内容", "start": 0, "end": 5000000}]
+    """
+    import json
+    from jianying.models import CaptionInfo
+
+    try:
+        captions_data = json.loads(captions_json)
+        captions = [CaptionInfo(**c) for c in captions_data]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid captions_json: {e}")
+
+    client = JianyingClient()
+    request = AddCaptionsRequest(
+        draft_url=draft_url,
+        captions=captions,
+        text_color=text_color,
+        font_size=font_size,
+        font=font,
+    )
+    return client.add_captions(request)
+
+
+@app.post("/api/jianying/save_draft", response_model=SaveDraftResponse)
+async def api_save_draft(draft_url: str = Form(...)):
+    """保存草稿"""
+    client = JianyingClient()
+    request = SaveDraftRequest(draft_url=draft_url)
+    return client.save_draft(request)
+
+
+@app.get("/api/jianying/get_draft")
+async def api_get_draft(draft_id: str):
+    """获取草稿信息"""
+    from fastapi.responses import FileResponse
+    import json
+
+    client = JianyingClient()
+    draft_dir = client.draft_dir / draft_id
+    draft_content_path = draft_dir / "draft_content.json"
+
+    if not draft_content_path.exists():
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    return FileResponse(
+        draft_content_path,
+        media_type="application/json",
+        filename=f"draft_content_{draft_id}.json",
+    )
+
+
 # ============ Main ============
 
 if __name__ == "__main__":

@@ -29,11 +29,7 @@ class RelativePathFormatter(logging.Formatter):
         self.project_root = project_root or os.getcwd()
 
     def format(self, record: logging.LogRecord) -> str:
-        try:
-            record.rel_path = os.path.relpath(record.pathname, self.project_root)
-        except ValueError:
-            # 跨驱动器时 relpath 会失败，直接用绝对路径
-            record.rel_path = record.pathname
+        record.rel_path = os.path.relpath(record.pathname, self.project_root)
         return super().format(record)
 
 LOGGING_CONFIG = {

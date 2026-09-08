@@ -12,6 +12,7 @@
       <CondensePanel />
       <RestorePanel />
       <EditorPanel />
+      <JianyingPanel />
       <InputArea />
     </main>
   </div>
@@ -30,6 +31,7 @@ import ConcatPanel from './components/panels/ConcatPanel.vue';
 import CondensePanel from './components/panels/CondensePanel.vue';
 import RestorePanel from './components/panels/RestorePanel.vue';
 import EditorPanel from './components/panels/EditorPanel.vue';
+import JianyingPanel from './components/panels/JianyingPanel.vue';
 import { useSessions } from './composables/useSessions';
 
 const { loadSessions } = useSessions();

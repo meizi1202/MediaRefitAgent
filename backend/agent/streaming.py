@@ -195,3 +195,24 @@ def create_stream_message(role: str, content: str) -> dict:
         "content": content,
         "timestamp": datetime.now().isoformat(),
     }
+
+
+def send_chain_init(chain: list):
+    """发送操作链初始化事件"""
+    if not _streaming_enabled:
+        return
+    queue = get_stream_queue()
+    event = {
+        "event": "chain_init",
+        "total_steps": len(chain),
+        "chain": [
+            {
+                "step_id": step.get("step_id"),
+                "step_name": step.get("step_name"),
+                "feature": step.get("feature"),
+                "status": step.get("status", "pending"),
+            }
+            for step in chain
+        ],
+    }
+    queue.put(json.dumps(event, ensure_ascii=False))

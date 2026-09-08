@@ -34,7 +34,7 @@ export interface VideoResult {
 }
 
 // 功能类型
-export type Feature = 'orient' | 'compress' | 'trim' | 'concat' | 'condense' | 'restore' | 'editor' | 'info';
+export type Feature = 'orient' | 'compress' | 'trim' | 'concat' | 'condense' | 'restore' | 'editor' | 'jianying' | 'info';
 
 // 转换策略
 export type Strategy = 'pad' | 'crop' | 'smart_crop' | 'stretch' | 'mirror_scroll' | 'pan_scroll';
@@ -54,6 +54,7 @@ export const FEATURE_LABELS: Record<Feature, string> = {
   condense: '智能缩编',
   restore: '老视频修复',
   editor: '智能剪辑',
+  jianying: '剪映对接',
   info: '视频信息获取',
 };
 

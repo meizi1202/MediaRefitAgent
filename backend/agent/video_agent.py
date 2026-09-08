@@ -206,6 +206,7 @@ def create_video_agent_graph():
         execute_restore,
         execute_info,
         execute_editor,
+        execute_jianying,
         confirm_complete,
     )
     from agent.nodes.routing import should_proceed, handle_user_response
@@ -222,6 +223,7 @@ def create_video_agent_graph():
     graph.add_node("execute_restore", execute_restore)
     graph.add_node("execute_info", execute_info)
     graph.add_node("execute_editor", execute_editor)
+    graph.add_node("execute_jianying", execute_jianying)
     graph.add_node("confirm_complete", confirm_complete)
     graph.add_node("handle_user_response", handle_user_response)
     graph.add_node("waiting_for_user", lambda state: state)  # 暂停等待用户输入
@@ -280,6 +282,7 @@ def create_video_agent_graph():
             "execute_restore": "execute_restore",
             "execute_info": "execute_info",
             "execute_editor": "execute_editor",
+            "execute_jianying": "execute_jianying",
             "handle_user_response": "handle_user_response",
             "waiting_for_user": "waiting_for_user",
             "confirm_complete": "confirm_complete",
@@ -295,13 +298,14 @@ def create_video_agent_graph():
     graph.add_edge("execute_restore", "confirm_complete")
     graph.add_edge("execute_info", "confirm_complete")
     graph.add_edge("execute_editor", "confirm_complete")
+    graph.add_edge("execute_jianying", "confirm_complete")
 
     # handle_user_response 节点：处理完用户回答后，根据 current_step 决定下一步
     def route_from_handle_user_response(state: VideoAgentState) -> str:
         next_step = state.get("current_step", "")
         execute_nodes = {"execute_transform", "execute_compress", "execute_concat",
                          "execute_trim", "execute_condense", "execute_restore",
-                         "execute_info", "execute_editor"}
+                         "execute_info", "execute_editor", "execute_jianying"}
         if next_step in execute_nodes:
             return next_step
         # 功能切换时，重新走 analyze_intent 解析
@@ -324,6 +328,7 @@ def create_video_agent_graph():
             "execute_restore": "execute_restore",
             "execute_info": "execute_info",
             "execute_editor": "execute_editor",
+            "execute_jianying": "execute_jianying",
             "analyze_intent": "analyze_intent",
             "waiting_for_user": "waiting_for_user",
             "confirm_complete": "confirm_complete",

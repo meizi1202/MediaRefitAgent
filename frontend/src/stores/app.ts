@@ -430,20 +430,21 @@ export const useAppStore = defineStore('app', () => {
           const modeMap: Record<string, string> = { 'subtitle': '添加字幕', 'transition': '添加转场', 'both': '字幕+转场' };
           parts.push(`剪映模式=${modeMap[selectedJianyingMode.value] || selectedJianyingMode.value}`);
         }
-        if (selectedSubtitleFontName.value) {
+        // 仅在字幕模式或字幕+转场模式下发送字幕参数
+        if ((selectedJianyingMode.value === 'subtitle' || selectedJianyingMode.value === 'both') && selectedSubtitleFontName.value) {
           parts.push(`字体名称=${selectedSubtitleFontName.value}`);
         }
-        if (selectedSubtitleFontSize.value) {
+        if ((selectedJianyingMode.value === 'subtitle' || selectedJianyingMode.value === 'both') && selectedSubtitleFontSize.value) {
           parts.push(`字号=${selectedSubtitleFontSize.value}`);
         }
-        if (selectedSubtitleColor.value) {
+        if ((selectedJianyingMode.value === 'subtitle' || selectedJianyingMode.value === 'both') && selectedSubtitleColor.value) {
           parts.push(`字幕颜色=${selectedSubtitleColor.value}`);
         }
-        // 仅在非字幕模式下发送转场参数
-        if (selectedJianyingMode.value !== 'subtitle' && selectedTransitionType.value) {
+        // 仅在转场模式或字幕+转场模式下发送转场参数
+        if ((selectedJianyingMode.value === 'transition' || selectedJianyingMode.value === 'both') && selectedTransitionType.value) {
           parts.push(`转场类型=${selectedTransitionType.value}`);
         }
-        if (selectedJianyingMode.value !== 'subtitle' && selectedTransitionDuration.value) {
+        if ((selectedJianyingMode.value === 'transition' || selectedJianyingMode.value === 'both') && selectedTransitionDuration.value) {
           parts.push(`转场时长=${selectedTransitionDuration.value}毫秒`);
         }
       }

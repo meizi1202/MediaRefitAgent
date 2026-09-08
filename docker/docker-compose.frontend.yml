@@ -1,0 +1,25 @@
+# ================================================
+# MediaRefitAgent - 前端 Docker Compose 配置
+# ================================================
+# 仅包含前端 Nginx 服务
+# 使用方法：docker-compose -f docker-compose.frontend.yml up -d
+# ================================================
+
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    container_name: mediarefit-frontend
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    depends_on:
+      - backend
+
+networks:
+  default:
+    name: mediarefit-network
+    external: true

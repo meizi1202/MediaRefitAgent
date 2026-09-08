@@ -1,0 +1,53 @@
+# ================================================
+# MediaRefitAgent - 后端 Docker Compose 配置
+# ================================================
+# 仅包含后端 FastAPI 服务
+# 使用方法：docker-compose -f docker-compose.backend.yml up -d
+# ================================================
+
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: mediarefit-backend
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    volumes:
+      - ../data/outputs:/app/data/outputs
+      - ../data/bgm:/app/data/bgm
+      - ../data/models:/app/data/models:ro
+    env_file:
+      - .env.docker
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OUTPUT_DIR=/app/data/outputs
+      - FFMPEG_DIR=
+      - MUSIC_LIBRARY_DIR=/app/data/bgm
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/api/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+    # ================================================
+    # GPU 支持（取消注释以启用）
+    # ================================================
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    # runtime: nvidia
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+
+networks:
+  default:
+    name: mediarefit-network
