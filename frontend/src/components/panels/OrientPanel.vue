@@ -100,9 +100,9 @@ function close() {
 
 <style scoped>
 .panel {
-  background: #1a1a1a;
-  border-top: 1px solid #2a2a2a;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--btv-bg-light);
+  border-top: 1px solid var(--btv-border);
+  border-bottom: 1px solid var(--btv-border);
   max-height: 200px;
   overflow-y: auto;
 }
@@ -149,8 +149,8 @@ function close() {
 .radio-item {
   flex: 1;
   padding: 8px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
@@ -158,9 +158,9 @@ function close() {
   color: #ccc;
 }
 .radio-item.active {
-  border-color: #4CAF50;
-  background: #2a4a2a;
-  color: #4CAF50;
+  border-color: var(--btv-red);
+  background: rgba(217, 54, 54, 0.2);
+  color: var(--btv-red);
 }
 .strategy-grid {
   display: grid;
@@ -169,8 +169,8 @@ function close() {
 }
 .strategy-btn {
   padding: 6px 8px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
@@ -178,8 +178,9 @@ function close() {
   color: #ccc;
 }
 .strategy-btn.active {
-  border-color: #4CAF50;
-  color: #4CAF50;
+  border-color: var(--btv-red);
+  background: rgba(217, 54, 54, 0.2);
+  color: var(--btv-red);
 }
 .ratio-group {
   display: flex;
@@ -188,8 +189,8 @@ function close() {
 }
 .ratio-btn {
   padding: 6px 12px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
@@ -197,8 +198,9 @@ function close() {
   color: #ccc;
 }
 .ratio-btn.active {
-  border-color: #4CAF50;
-  color: #4CAF50;
+  border-color: var(--btv-red);
+  background: rgba(217, 54, 54, 0.2);
+  color: var(--btv-red);
 }
 .slide-up-enter-active, .slide-up-leave-active {
   transition: max-height 0.3s ease, opacity 0.3s ease;

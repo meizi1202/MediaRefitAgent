@@ -44,9 +44,9 @@ function close() {
 
 <style scoped>
 .panel {
-  background: #1a1a1a;
-  border-top: 1px solid #2a2a2a;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--btv-bg-light);
+  border-top: 1px solid var(--btv-border);
+  border-bottom: 1px solid var(--btv-border);
   max-height: 200px;
   overflow-y: auto;
 }
@@ -84,8 +84,8 @@ function close() {
 .form-group input {
   width: 100%;
   padding: 8px 12px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   color: #fff;
   font-size: 13px;

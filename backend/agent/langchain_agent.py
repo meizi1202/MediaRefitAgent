@@ -112,31 +112,38 @@ def handle_general_chat(
     result = llm._generate([{"role": "user", "content": prompt}])
     content = result.content or ""
 
+    print(f"[DEBUG handle_general_chat] LLM content length: {len(content)}, preview: {repr(content[:300])}")
+
     # 提取 JSON 中的 response
     # 尝试完整 JSON 解析
     try:
         # 先尝试找到完整的 JSON 对象
         json_start = content.find('{"response":"')
+        print(f"[DEBUG handle_general_chat] json_start: {json_start}")
         if json_start != -1:
             # 找到 JSON 开始位置，从这里尝试解析
             json_candidate = content[json_start:]
             # 找到 JSON 结束位置（最后一个 }）
             json_end = json_candidate.rfind('"}')
+            print(f"[DEBUG handle_general_chat] json_end: {json_end}")
             if json_end != -1:
                 json_str = json_candidate[:json_end + 2]
+                print(f"[DEBUG handle_general_chat] json_str: {repr(json_str[:200])}")
                 parsed = json.loads(json_str)
                 response_text = parsed.get("response", "")
                 # 简单替换常见的转义字符
                 response_text = response_text.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"').replace("\\\\", "\\")
+                print(f"[DEBUG handle_general_chat] SUCCESS parsed response: {repr(response_text[:100])}")
                 return {"response": response_text}
-    except (json.JSONDecodeError, KeyError):
-        pass
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"[DEBUG handle_general_chat] JSON parse error: {e}")
 
     # 回退：简单正则提取
     response_match = re.search(r'"response"\s*:\s*"(.*?)"(?:\}|$)', content, re.DOTALL)
     if response_match:
         response_text = response_match.group(1)
         response_text = response_text.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"').replace("\\\\", "\\")
+        print(f"[DEBUG handle_general_chat] regex match SUCCESS: {repr(response_text[:100])}")
         return {"response": response_text}
 
     # 如果提取失败，尝试直接返回内容
@@ -152,8 +159,10 @@ def handle_general_chat(
         content = content.strip()
         # 简单替换常见的转义字符
         content = content.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"').replace("\\\\", "\\")
+        print(f"[DEBUG handle_general_chat] fallback return content: {repr(content[:100])}")
         return {"response": content}
 
+    print(f"[DEBUG handle_general_chat] returning NULL_RESPONSE")
     return {"response": "抱歉，我现在无法回答这个问题。请尝试描述您的具体需求，比如想要转换视频方向、压缩视频、或者剪辑视频等。"}
 
 

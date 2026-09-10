@@ -213,6 +213,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function setTransformProgress(percent: number | null) {
+    console.log('[DEBUG Store] setTransformProgress called:', percent, 'typeof:', typeof percent);
     transformProgress.value = percent;
   }
 
@@ -258,6 +259,7 @@ export const useAppStore = defineStore('app', () => {
       if (index !== -1) {
         session.messages[index].content = content;
         session.messages[index].streaming = false;
+        session.messages[index].timestamp = new Date().toISOString(); // 更新为完成时间
       }
     }
   }

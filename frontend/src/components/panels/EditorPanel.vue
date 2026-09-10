@@ -240,9 +240,9 @@ function close() {
 
 <style scoped>
 .panel {
-  background: #1a1a1a;
-  border-top: 1px solid #2a2a2a;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--btv-bg-light);
+  border-top: 1px solid var(--btv-border);
+  border-bottom: 1px solid var(--btv-border);
   max-height: 320px;
   overflow-y: auto;
 }
@@ -280,16 +280,16 @@ function close() {
 }
 .mode-btn {
   padding: 8px 6px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
   text-align: center;
 }
 .mode-btn.active {
-  border-color: #4CAF50;
-  background: #2a4a2a;
+  border-color: var(--btv-red);
+  background: rgba(217, 54, 54, 0.2);
 }
 .mode-name {
   display: block;
@@ -312,8 +312,8 @@ function close() {
 }
 .option-btn {
   padding: 6px 12px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 4px;
   color: #888;
   font-size: 12px;
@@ -321,15 +321,15 @@ function close() {
   transition: all 0.2s;
 }
 .option-btn.active {
-  border-color: #4CAF50;
-  background: #2a4a2a;
+  border-color: var(--btv-red);
+  background: rgba(217, 54, 54, 0.2);
   color: #fff;
 }
 .duration-input {
   width: 100%;
   padding: 8px 12px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   color: #fff;
   font-size: 13px;
@@ -337,22 +337,22 @@ function close() {
 }
 .duration-input:focus {
   outline: none;
-  border-color: #4CAF50;
+  border-color: var(--btv-red);
 }
 .text-input {
   width: 100%;
   padding: 8px 12px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
-  color: #fff;
+  color: var(--btv-text);
   font-size: 13px;
   box-sizing: border-box;
   resize: vertical;
 }
 .text-input:focus {
   outline: none;
-  border-color: #4CAF50;
+  border-color: var(--btv-red);
 }
 .range-row {
   display: flex;
@@ -361,10 +361,10 @@ function close() {
 }
 .range-input {
   flex: 1;
-  accent-color: #4CAF50;
+  accent-color: var(--btv-red);
 }
 .range-value {
-  color: #4CAF50;
+  color: var(--btv-gold);
   font-size: 12px;
   min-width: 36px;
 }

@@ -1183,7 +1183,16 @@ def analyze_intent(state: VideoAgentState) -> VideoAgentState:
             )
 
             llm_response = general_result.get("response", "")
-            _append_message(state, "assistant", llm_response)
+            # handle_general_chat 已解析 JSON，直接发送纯文本（保持流式输出）
+            msg = ConversationMessage(
+                role="assistant",
+                content=llm_response,
+                timestamp=datetime.now().isoformat(),
+            )
+            state["messages"].append(msg)
+            if is_streaming_enabled():
+                # 直接用 send_stream_chunk 流式发送纯文本，而非 JSON
+                send_stream_chunk(llm_response)
 
             # 设置平台信息到 state
             if platform_detected:

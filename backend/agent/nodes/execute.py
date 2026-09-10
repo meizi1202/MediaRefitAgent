@@ -11,8 +11,30 @@ import json
 from datetime import datetime
 from pathlib import Path
 import os
+import math
 
 from agent.types import VideoAgentState, ConversationMessage
+
+
+def _format_ratio(ratio: float) -> str:
+    """将浮点比例格式化为字符串格式（如 16:9）"""
+    if ratio is None:
+        return "未指定"
+    # 用 round 避免浮点精度问题，然后比较差值
+    ratio = round(ratio, 4)
+    ratio_map = [
+        (0.5625, "9:16"),   # 竖屏
+        (0.8, "4:5"),
+        (1.0, "1:1"),
+        (1.3333, "4:3"),
+        (1.7778, "16:9"),   # 横屏
+        (2.3333, "21:9"),
+    ]
+    for val, label in ratio_map:
+        if abs(ratio - val) < 0.01:
+            return label
+    # 无法识别，返回原始值
+    return str(round(ratio, 2))
 from agent.streaming import send_stream_chunk, send_stream_message, is_streaming_enabled
 from video.transformer import transform, TransformRequest
 from video.restoration import RestorationRequest
@@ -35,6 +57,7 @@ def _make_progress_callback(label: str = ""):
     """生成统一的进度回调函数"""
     def progress_callback(progress: float, message: str = ""):
         msg = f"[PROGRESS:{int(progress * 100)}]"
+        print(f"[DEBUG _make_progress_callback] {label} sending: {msg}")
         send_stream_message(msg)
     return progress_callback
 
@@ -86,15 +109,19 @@ def execute_transform(state: VideoAgentState) -> VideoAgentState:
 
             # 转换英文值为中文
             orientation_map = {"portrait": "竖屏", "landscape": "横屏", "square": "正方形"}
-            strategy_map = {"pad": "填充黑边", "crop": "中心裁剪", "smart_crop": "智能裁剪", "stretch": "拉伸填充", "mirror_scroll": "镜像滚动", "pan_scroll": "平移运镜"}
-            # 比例映射：float -> string
-            ratio_map = {0.5625: "9:16", 0.8: "4:5", 1.0: "1:1", 1.7778: "16:9", 2.3333: "21:9", 1.3333: "4:3"}
+            strategy_map = {
+                "pad": "填充黑边",
+                "crop": "中心裁剪",
+                "smart_crop": "智能裁剪",
+                "stretch": "拉伸填充",
+                "mirror_scroll": "镜像滚动",
+                "pan_scroll": "平移运镜",
+                "rotate_0": "无需旋转",
+                "none (already target orientation)": "无需转换（已是目标方向）",
+            }
             target_orientation_cn = orientation_map.get(result.target_orientation, result.target_orientation)
             target_ratio_raw = state.get("target_ratio")
-            if target_ratio_raw:
-                target_ratio = ratio_map.get(target_ratio_raw, str(target_ratio_raw))
-            else:
-                target_ratio = "未指定"
+            target_ratio = _format_ratio(target_ratio_raw)
             strategy_used_cn = strategy_map.get(result.strategy_used, result.strategy_used)
             output_filename = Path(result.output_path).name
 
@@ -1011,7 +1038,7 @@ def execute_chain_step(state: VideoAgentState) -> VideoAgentState:
     current_idx = state.get("current_step_index", 0)
 
     if current_idx >= len(chain):
-        state["current_step"] = "handle_chain_complete"
+        state["current_step"] = "confirm_complete"
         return state
 
     current_step = chain[current_idx]
@@ -1029,7 +1056,7 @@ def execute_chain_step(state: VideoAgentState) -> VideoAgentState:
         current_step["status"] = "failed"
         current_step["error"] = "输入视频不存在"
         state["chain_status"] = "failed"
-        state["current_step"] = "handle_chain_complete"
+        state["current_step"] = "confirm_complete"
         return state
 
     # 发送步骤开始事件

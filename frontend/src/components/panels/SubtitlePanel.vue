@@ -145,9 +145,9 @@ function close() {
 
 <style scoped>
 .panel {
-  background: #1a1a1a;
-  border-top: 1px solid #2a2a2a;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--btv-bg-light);
+  border-top: 1px solid var(--btv-border);
+  border-bottom: 1px solid var(--btv-border);
   max-height: 320px;
   overflow-y: auto;
 }
@@ -185,16 +185,16 @@ function close() {
 }
 .style-btn {
   padding: 10px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
   text-align: left;
 }
 .style-btn.active {
-  border-color: #4CAF50;
-  background: #2a4a2a;
+  border-color: var(--btv-red);
+  background: rgba(217, 54, 54, 0.2);
 }
 .style-name {
   display: block;
@@ -216,30 +216,30 @@ function close() {
 .color-input {
   flex: 1;
   padding: 8px 12px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   color: #fff;
   font-size: 13px;
 }
 .color-input:focus {
   outline: none;
-  border-color: #4CAF50;
+  border-color: var(--btv-red);
 }
 .color-picker {
   width: 36px;
   height: 36px;
   padding: 2px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   cursor: pointer;
 }
 .text-input {
   width: 100%;
   padding: 8px 12px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   color: #fff;
   font-size: 13px;
@@ -247,13 +247,13 @@ function close() {
 }
 .text-input:focus {
   outline: none;
-  border-color: #4CAF50;
+  border-color: var(--btv-red);
 }
 .number-input {
   width: 100%;
   padding: 8px 12px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   color: #fff;
   font-size: 13px;
@@ -261,7 +261,7 @@ function close() {
 }
 .number-input:focus {
   outline: none;
-  border-color: #4CAF50;
+  border-color: var(--btv-red);
 }
 .align-grid {
   display: flex;
@@ -270,8 +270,8 @@ function close() {
 .align-btn {
   flex: 1;
   padding: 8px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   color: #888;
   font-size: 12px;
@@ -279,8 +279,8 @@ function close() {
   transition: all 0.2s;
 }
 .align-btn.active {
-  border-color: #4CAF50;
-  background: #2a4a2a;
+  border-color: var(--btv-red);
+  background: rgba(217, 54, 54, 0.2);
   color: #fff;
 }
 .slide-up-enter-active, .slide-up-leave-active {

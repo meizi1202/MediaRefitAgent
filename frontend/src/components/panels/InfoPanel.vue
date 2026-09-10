@@ -53,9 +53,9 @@ function formatSize(bytes: number | undefined) {
 
 <style scoped>
 .panel {
-  background: #1a1a1a;
-  border-top: 1px solid #2a2a2a;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--btv-bg-light);
+  border-top: 1px solid var(--btv-border);
+  border-bottom: 1px solid var(--btv-border);
   max-height: 200px;
   overflow-y: auto;
 }
@@ -83,7 +83,7 @@ function formatSize(bytes: number | undefined) {
   gap: 12px;
 }
 .info-item {
-  background: #2a2a2a;
+  background: var(--btv-surface);
   padding: 10px;
   border-radius: 6px;
 }
@@ -95,7 +95,7 @@ function formatSize(bytes: number | undefined) {
 }
 .info-item .value {
   display: block;
-  color: #4CAF50;
+  color: var(--btv-gold);
   font-size: 14px;
   font-weight: 600;
 }

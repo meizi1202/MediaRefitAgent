@@ -105,6 +105,7 @@ async function handleSend() {
 
   // 使用流式 API
   store.setLoading(true);
+  store.setTransformProgress(0);  // 重置进度
   const targetSessionId = sessionId;
 
   // 创建一条临时的助手消息用于流式更新
@@ -211,15 +212,15 @@ function handleKeydown(e: KeyboardEvent) {
 <style scoped>
 .selected-files {
   padding: 8px 16px;
-  background: #252525;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--btv-surface);
+  border-bottom: 1px solid var(--btv-border);
 }
 .file-tag {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: #2a2a2a;
+  background: var(--btv-surface);
   border-radius: 6px;
   font-size: 13px;
 }
@@ -275,8 +276,8 @@ function handleKeydown(e: KeyboardEvent) {
   background: #3a3a3a;
 }
 .input-area {
-  background: #1a1a1a;
-  border-top: 1px solid #2a2a2a;
+  background: var(--btv-bg);
+  border-top: 1px solid var(--btv-border);
 }
 .input-row {
   display: flex;
@@ -286,18 +287,18 @@ function handleKeydown(e: KeyboardEvent) {
 }
 .file-btn {
   padding: 10px 16px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 8px;
-  color: #888;
+  color: var(--btv-text-secondary);
   cursor: pointer;
   font-size: 14px;
   position: relative;
   white-space: nowrap;
 }
 .file-btn:hover {
-  border-color: #4CAF50;
-  color: #4CAF50;
+  border-color: var(--btv-red);
+  color: var(--btv-red);
 }
 .file-btn input {
   position: absolute;
@@ -311,10 +312,10 @@ function handleKeydown(e: KeyboardEvent) {
 .input-field {
   flex: 1;
   padding: 12px 16px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 8px;
-  color: #fff;
+  color: var(--btv-text);
   font-size: 14px;
   resize: none;
   min-height: 44px;
@@ -322,11 +323,11 @@ function handleKeydown(e: KeyboardEvent) {
 }
 .input-field:focus {
   outline: none;
-  border-color: #4CAF50;
+  border-color: var(--btv-red);
 }
 .send-btn {
   padding: 10px 20px;
-  background: #4CAF50;
+  background: linear-gradient(135deg, var(--btv-red) 0%, var(--btv-red-dark) 100%);
   border: none;
   border-radius: 8px;
   color: #fff;
@@ -334,13 +335,15 @@ function handleKeydown(e: KeyboardEvent) {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(217, 54, 54, 0.3);
 }
 .send-btn:hover {
-  background: #45a049;
+  background: linear-gradient(135deg, var(--btv-red-dark) 0%, #9a2222 100%);
 }
 .send-btn:disabled {
-  background: #333;
-  color: #555;
+  background: var(--btv-surface);
+  color: var(--btv-text-muted);
   cursor: not-allowed;
+  box-shadow: none;
 }
 </style>

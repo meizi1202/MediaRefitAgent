@@ -34,11 +34,11 @@
             </div>
           </div>
           <!-- 流式加载指示器 - 紧跟在助手消息下方 -->
-          <div v-if="group.role === 'assistant' && group.items.some(item => item.streaming)" class="streaming-indicator">
+          <div v-if="group.role === 'assistant' && group.items.some(item => item.streaming === true)" class="streaming-indicator" :data-tp="transformProgress" :data-items="group.items.map(i => i.streaming).join(',')" :data-cond="group.role === 'assistant' && group.items.some(item => item.streaming === true)">
             <!-- 有进度时（1-99%）展示进度条 -->
-            <template v-if="transformProgress !== null && transformProgress > 0 && transformProgress < 100">
+            <template v-if="Number(transformProgress) > 0 && Number(transformProgress) < 100">
               <div class="progress-bar">
-                <div class="progress-fill" :style="{ width: transformProgress + '%' }"></div>
+                <div class="progress-fill" :style="{ width: String(Number(transformProgress)) + '%' }" :data-w="String(Number(transformProgress)) + '%'"></div>
               </div>
               <span class="progress-text">{{ transformProgress }}%</span>
             </template>
@@ -65,6 +65,19 @@ const messagesRef = ref<HTMLElement | null>(null);
 
 const messages = computed(() => store.currentMessages);
 const transformProgress = computed(() => store.transformProgress);
+
+// 调试：监听 streaming 状态
+watch(messages, (newMsgs) => {
+  console.log('[DEBUG ChatArea] messages changed, count:', newMsgs.length);
+  newMsgs.forEach((m: any, i) => {
+    console.log(`[DEBUG ChatArea] msg[${i}] role=${m.role} streaming=${m.streaming}`);
+  });
+}, { deep: true });
+
+// 调试：监听 transformProgress 变化
+watch(transformProgress, (newVal, oldVal) => {
+  console.log('[DEBUG ChatArea] transformProgress changed:', oldVal, '->', newVal);
+});
 
 // 计算预览视频 URL
 function getPreviewUrl(path: string): string {
@@ -144,6 +157,13 @@ function formatTime(ts: string): string {
 
 function formatContent(content: string | null | undefined): string {
   if (!content) return '';
+  // 检测 JSON 格式并提取 response 字段
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed.response === 'string') {
+      content = parsed.response;
+    }
+  } catch {}
   // 移除 [PREVIEW:...] 标签（用于触发视频预览，不显示在消息中）
   let text = content.replace(/\[PREVIEW:[^\]]*\]/g, '').trim();
   // 转义 HTML 特殊字符，防止 \n \t 等被解释
@@ -221,7 +241,8 @@ export default { name: 'ChatArea' };
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #2a2a2a;
+  background: var(--btv-surface);
+  border: 2px solid var(--btv-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -245,14 +266,16 @@ export default { name: 'ChatArea' };
   margin-bottom: 12px;
 }
 .message-group.user .message-bubble {
-  background: #4CAF50;
-  color: #fff;
+  background: var(--btv-surface);
+  color: var(--btv-text);
+  border: 1px solid var(--btv-border);
   border-bottom-right-radius: 4px;
 }
 .message-group.assistant .message-bubble {
-  background: #2a2a2a;
-  color: #fff;
+  background: var(--btv-surface);
+  color: var(--btv-text);
   border-bottom-left-radius: 4px;
+  border: 1px solid var(--btv-border);
 }
 /* 同一组内的多个气泡之间通过 formatContent 的 br 换行 */
 .message-bubble.streaming {
@@ -304,13 +327,13 @@ export default { name: 'ChatArea' };
 .streaming-indicator .progress-bar {
   flex: 1;
   height: 6px;
-  background: #444;
+  background: var(--btv-surface);
   border-radius: 3px;
   overflow: hidden;
 }
 .streaming-indicator .progress-fill {
   height: 100%;
-  background: #4CAF50;
+  background: linear-gradient(90deg, var(--btv-red) 0%, var(--btv-gold) 100%);
   border-radius: 3px;
   transition: width 0.3s ease;
 }
@@ -328,7 +351,7 @@ export default { name: 'ChatArea' };
   gap: 8px;
 }
 .preview-item {
-  background: #2a2a2a;
+  background: var(--btv-surface);
   border-radius: 8px;
   overflow: hidden;
   max-width: 300px;
@@ -349,7 +372,7 @@ export default { name: 'ChatArea' };
   text-align: right;
 }
 .download-link {
-  color: #4CAF50;
+  color: var(--btv-gold);
   text-decoration: none;
   font-size: 12px;
 }

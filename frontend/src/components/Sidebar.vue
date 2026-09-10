@@ -3,8 +3,11 @@
     <div class="sidebar-expanded" v-show="!collapsed">
       <div class="sidebar-header">
         <div class="header-top">
-          <span class="agent-name-text" @dblclick="startEdit">{{ agentName }}</span>
-          <button class="collapse-btn" @click="$emit('collapse')">—</button>
+          <div class="agent-logo-title">
+            <img class="agent-logo" src="https://minimax-algeng-chat-tts.oss-cn-wulanchabu.aliyuncs.com/ccv2%2F2026-09-10%2FMiniMax-M2.7%2F2019053614890226016%2F5fc27f520a4c5da49567dcc655a00fe23b36c8f76eec69b9f7f5b832aa37af16..jpeg?Expires=1789106377&OSSAccessKeyId=LTAI5tGLnRTkBjLuYPjNcKQ8&Signature=qn4j53nf51CPupd%2FsP4a%2Fy%2F73Do%3D" alt="logo" />
+            <span class="agent-name-text" @dblclick="startEdit">{{ agentName }}</span>
+          </div>
+          <button class="collapse-btn" @click="$emit('collapse')">❮❮</button>
         </div>
         <input
           v-if="editingName"
@@ -14,7 +17,7 @@
           @blur="saveName"
           @keyup.enter="saveName"
         />
-        <button class="new-chat-btn" @click="handleNewChat">+ 新建会话</button>
+        <button class="new-chat-btn" @click="handleNewChat">+ 开启新对话</button>
       </div>
       <div class="sessions-list">
         <div
@@ -61,7 +64,7 @@ defineEmits(['collapse']);
 const store = useAppStore();
 const { createSession, selectSession, deleteSession, renameSession } = useSessions();
 
-const agentName = ref(localStorage.getItem('agentName') || 'MediaRefitAgent');
+const agentName = ref('智能视频编辑');
 const editingName = ref(false);
 const nameInput = ref<HTMLInputElement | null>(null);
 
@@ -98,7 +101,13 @@ function cancelEditSession() {
 }
 
 onMounted(() => {
-  agentName.value = localStorage.getItem('agentName') || 'MediaRefitAgent';
+  const stored = localStorage.getItem('agentName');
+  if (!stored || stored === 'MediaRefitAgent') {
+    agentName.value = '智能视频编辑';
+    localStorage.setItem('agentName', '智能视频编辑');
+  } else {
+    agentName.value = stored;
+  }
 });
 
 function handleNewChat() {

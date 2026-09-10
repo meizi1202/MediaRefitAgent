@@ -67,9 +67,9 @@ function close() {
 
 <style scoped>
 .panel {
-  background: #1a1a1a;
-  border-top: 1px solid #2a2a2a;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--btv-bg-light);
+  border-top: 1px solid var(--btv-border);
+  border-bottom: 1px solid var(--btv-border);
   max-height: 220px;
   overflow-y: auto;
 }
@@ -107,16 +107,16 @@ function close() {
 .preset-btn {
   flex: 1;
   padding: 10px;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: var(--btv-surface);
+  border: 1px solid var(--btv-border);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
   text-align: left;
 }
 .preset-btn.active {
-  border-color: #4CAF50;
-  background: #2a4a2a;
+  border-color: var(--btv-red);
+  background: rgba(217, 54, 54, 0.2);
 }
 .preset-name {
   display: block;

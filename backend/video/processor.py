@@ -80,11 +80,13 @@ def run_ffmpeg(cmd: list, progress_callback: Optional[Callable[[float], None]] =
         (是否成功, 错误信息或输出)
     """
     try:
+        print(f"[DEBUG run_ffmpeg] Starting FFmpeg with cmd: {' '.join(cmd[:5])}...")
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        print(f"[DEBUG run_ffmpeg] FFmpeg process started, pid={process.pid}")
 
         output = []
         # 使用二进制读取，手动解码，避免编码问题

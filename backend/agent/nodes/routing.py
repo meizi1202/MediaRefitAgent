@@ -594,7 +594,7 @@ def chain_router(state: VideoAgentState) -> str:
 
     Returns:
         "execute_chain_step" - 继续执行下一步
-        "handle_chain_complete" - 操作链完成
+        "confirm_complete" - 操作链完成
     """
     chain = state.get("operation_chain", [])
     current_idx = state.get("current_step_index", 0)
@@ -604,8 +604,8 @@ def chain_router(state: VideoAgentState) -> str:
 
     # 操作链失败，直接完成
     if chain_status == "failed":
-        print(f"[DEBUG chain_router] -> handle_chain_complete (chain_status=failed)")
-        return "handle_chain_complete"
+        print(f"[DEBUG chain_router] -> confirm_complete (chain_status=failed)")
+        return "confirm_complete"
 
     # 还有未执行的步骤
     if current_idx < len(chain):
@@ -613,6 +613,6 @@ def chain_router(state: VideoAgentState) -> str:
         return "execute_chain_step"
 
     # 所有步骤执行完成
-    print(f"[DEBUG chain_router] -> handle_chain_complete (all steps done)")
-    return "handle_chain_complete"
+    print(f"[DEBUG chain_router] -> confirm_complete (all steps done)")
+    return "confirm_complete"
 

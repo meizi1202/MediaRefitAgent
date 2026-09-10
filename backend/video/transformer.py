@@ -169,6 +169,7 @@ def transform(
 
         # 7. 执行转换
         if progress_callback:
+            print(f"[DEBUG transform] calling progress_callback with 0.1")
             progress_callback(0.1)
 
         if request.strategy == "rotate":

@@ -68,6 +68,13 @@ export const api = {
               if (textWithoutProgress) {
                 onMessage(textWithoutProgress);
               }
+            } else if (data.event === 'progress') {
+              // 处理独立的进度事件
+              console.log('[DEBUG API] progress event received:', data.progress, 'raw:', data);
+              if (onProgress && typeof data.progress === 'number') {
+                console.log('[DEBUG API] calling onProgress with:', data.progress * 100);
+                onProgress(data.progress * 100);
+              }
             } else if (data.event === 'message_end') {
               onDone(data);
             } else if (data.event === 'error') {

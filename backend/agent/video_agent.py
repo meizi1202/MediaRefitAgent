@@ -207,9 +207,10 @@ def create_video_agent_graph():
         execute_info,
         execute_editor,
         execute_jianying,
+        execute_chain_step,
         confirm_complete,
     )
-    from agent.nodes.routing import should_proceed, handle_user_response
+    from agent.nodes.routing import should_proceed, handle_user_response, chain_router
 
     graph = StateGraph(VideoAgentState)
 
@@ -224,6 +225,7 @@ def create_video_agent_graph():
     graph.add_node("execute_info", execute_info)
     graph.add_node("execute_editor", execute_editor)
     graph.add_node("execute_jianying", execute_jianying)
+    graph.add_node("execute_chain_step", execute_chain_step)
     graph.add_node("confirm_complete", confirm_complete)
     graph.add_node("handle_user_response", handle_user_response)
     graph.add_node("waiting_for_user", lambda state: state)  # 暂停等待用户输入
@@ -283,6 +285,7 @@ def create_video_agent_graph():
             "execute_info": "execute_info",
             "execute_editor": "execute_editor",
             "execute_jianying": "execute_jianying",
+            "execute_chain_step": "execute_chain_step",
             "handle_user_response": "handle_user_response",
             "waiting_for_user": "waiting_for_user",
             "confirm_complete": "confirm_complete",
@@ -331,6 +334,16 @@ def create_video_agent_graph():
             "execute_jianying": "execute_jianying",
             "analyze_intent": "analyze_intent",
             "waiting_for_user": "waiting_for_user",
+            "confirm_complete": "confirm_complete",
+        }
+    )
+
+    # execute_chain_step 条件边：使用 chain_router 决定下一步（继续执行或完成）
+    graph.add_conditional_edges(
+        "execute_chain_step",
+        chain_router,
+        {
+            "execute_chain_step": "execute_chain_step",
             "confirm_complete": "confirm_complete",
         }
     )
