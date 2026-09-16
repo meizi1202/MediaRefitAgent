@@ -216,3 +216,34 @@ def send_chain_init(chain: list):
         ],
     }
     queue.put(json.dumps(event, ensure_ascii=False))
+
+
+def send_chain_step_start(step_num: int, total_steps: int, step_name: str):
+    """发送操作链步骤开始事件"""
+    if not _streaming_enabled:
+        return
+    queue = get_stream_queue()
+    event = {
+        "event": "chain_step_start",
+        "step_num": step_num,
+        "total_steps": total_steps,
+        "step_name": step_name,
+    }
+    queue.put(json.dumps(event, ensure_ascii=False))
+
+
+def send_chain_step_complete(step_num: int, total_steps: int, step_name: str, success: bool = True, error: str = None):
+    """发送操作链步骤完成事件"""
+    if not _streaming_enabled:
+        return
+    queue = get_stream_queue()
+    event = {
+        "event": "chain_step_complete",
+        "step_num": step_num,
+        "total_steps": total_steps,
+        "step_name": step_name,
+        "success": success,
+    }
+    if error:
+        event["error"] = error
+    queue.put(json.dumps(event, ensure_ascii=False))

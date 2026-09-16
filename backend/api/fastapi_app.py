@@ -2202,7 +2202,7 @@ async def api_editor_short_video(
 
     try:
         import ffmpeg
-        from video.condenser import VideoCondenser
+        from video.condenser import VideoCondenser, condense_video
         from video.bgm import find_matching_bgm, add_bgm_to_video
         from video.filter import VideoFilter
         from video.processor import add_transition as add_video_transition, transform, TransformRequest
@@ -2214,26 +2214,28 @@ async def api_editor_short_video(
         def progress_callback(progress):
             pass
 
-        # Step 1: 精彩片段提取
+        # Step 1: 精彩片段提取 - 调用高光提取
         steps.append("提取精彩片段")
-        condenser = VideoCondenser()
-        # 简化处理：直接使用原始视频（condenser 逻辑较复杂，需要 ASR）
-        # 实际项目中应该调用 condenser.extract()
-        segments = []
         metadata = ffmpeg.probe(input_path)
         video_duration = float(metadata['format']['duration'])
 
-        # 如果视频时长超过目标时长，截取中间部分作为简化处理
+        # 如果视频时长超过目标时长，调用高光提取
         if video_duration > target_duration:
-            # 使用 ffmpeg 直接截取
-            start_time = (video_duration - target_duration) / 2
-            temp_output = os.path.join(base_dir, f"temp_clip_{Path(file.filename).stem}{suffix}")
-            stream = ffmpeg.input(input_path, ss=start_time)
-            stream = ffmpeg.output(stream, temp_output, t=target_duration, vcodec='copy', acodec='copy')
-            ffmpeg.run(stream, overwrite_output=True, quiet=True)
-            if os.path.exists(temp_output):
-                current_path = temp_output
-                video_duration = target_duration
+            temp_output = os.path.join(base_dir, f"temp_highlight_{Path(file.filename).stem}{suffix}")
+            condenser_result = condense_video(
+                video_path=input_path,
+                output_path=temp_output,
+                strategy="content_condense",
+                target_duration=float(target_duration),
+                language=language,
+            )
+            if condenser_result.success:
+                current_path = condenser_result.output_path
+                video_duration = condenser_result.duration_after
+                steps.append(f"高光提取完成，保留 {len(condenser_result.segments)} 个片段")
+            else:
+                # 高光提取失败时，回退到原始视频
+                steps.append(f"高光提取失败，使用原始视频")
 
         # Step 2: 横竖屏转换
         if target_orientation == "portrait":

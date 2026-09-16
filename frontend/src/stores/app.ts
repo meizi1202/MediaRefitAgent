@@ -330,7 +330,7 @@ export const useAppStore = defineStore('app', () => {
       // 智能缩编的参数
       if (currentFeature.value === 'condense') {
         const strategyMap: Record<string, string> = {
-          'content_condense': '内容缩编',
+          'content_condense': '高光时刻',
           'smart_compress': '智能压缩',
         };
         const strategyLabel = strategyMap[selectedCondenseStrategy.value];

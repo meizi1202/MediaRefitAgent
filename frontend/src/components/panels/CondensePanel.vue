@@ -49,7 +49,7 @@ const targetDuration = ref<number | null>(null);
 const visible = computed(() => store.currentFeature === 'condense');
 
 const CONDENSE_STRATEGIES = {
-  content_condense: { name: '内容缩编', desc: '保留精彩片段，精简内容' },
+  content_condense: { name: '高光时刻', desc: '保留精彩片段，精简内容' },
   smart_compress: { name: '智能压缩', desc: '智能压缩，保持内容完整' },
 };
 
